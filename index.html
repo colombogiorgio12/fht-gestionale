@@ -609,7 +609,7 @@ function officeKind(url){const u=String(url);
 function linkForm(link){
   const nm=h("input",{type:"text",id:"lk-name",required:true,placeholder:"es. Protocollo MIND v3"});const url=h("input",{type:"text",id:"lk-url",required:true,placeholder:"https://…sharepoint.com/:w:/…",inputmode:"url"});
   openModal("Collega un documento condiviso",h("div",{class:"form"},h("label",{class:"full"},"Link di condivisione",url),h("label",{class:"full"},"Nome",nm),
-    h("p",{class:"hint full"},"Su OneDrive: clic destro sul file → Condividi → «Le persone di ETH Singapore SEC con il link» con permesso di modifica → Copia link. Chi lo apre lavora sullo stesso file in Word o Excel online, anche in contemporanea.")),async()=>{
+    h("p",{class:"hint full"},"Su OneDrive: clic destro sul file → Condividi → «Le persone di ETH Singapore SEC con il link» con permesso di modifica → Copia link. Chi lo apre lavora sullo stesso file in Word, Excel o PowerPoint online, anche in contemporanea.")),async()=>{
     let u;try{u=new URL(url.value.trim())}catch(e){toast("Il link non è valido.");return false}
     if(u.protocol!=="https:"){toast("Usa un link che inizia con https://");return false}
     if(!nm.value.trim()){toast("Dai un nome al documento.");return false}
