@@ -404,7 +404,7 @@ const LINE={user:'<circle cx="8" cy="5.5" r="2.5"/><path d="M3 13.5c.8-2.6 2.8-4
   trash:'<path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 9h5.8l.6-9"/>',comment:'<path d="M2.5 3.5h11v7.5H6l-3.5 2.5z"/>',upload:'<path d="M8 11V2.5M4.5 6 8 2.5 11.5 6M3 13.5h10"/>',
   edit:'<path d="M10.5 3 13 5.5l-7 7H3.5V10z"/>',copy:'<rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-3h-8v8h3"/>',mail:'<rect x="2.5" y="3.5" width="11" height="9" rx="1.5"/><path d="m3 4.5 5 4 5-4"/>',
   pause:'<path d="M6 4v8M10 4v8"/>',play:'<path d="M5 3.5v9l7-4.5z"/>',arrowUp:'<path d="M8 13V3M4 7l4-4 4 4"/>',sun:'<circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/>',
-  export:'<path d="M8 10V2.5M4.5 6 8 2.5 11.5 6"/><path d="M3 9v4.5h10V9"/>',moon:'<path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z"/>',
+  export:'<path d="M8 10V2.5M4.5 6 8 2.5 11.5 6"/><path d="M3 9v4.5h10V9"/>',link:'<path d="M7 9a2.8 2.8 0 0 0 4 0l2-2a2.8 2.8 0 0 0-4-4l-.7.7M9 7a2.8 2.8 0 0 0-4 0l-2 2a2.8 2.8 0 0 0 4 4l.7-.7"/>',moon:'<path d="M13 9.5A5.5 5.5 0 0 1 6.5 3a5.5 5.5 0 1 0 6.5 6.5z"/>',
   monitor:'<rect x="2" y="3" width="12" height="8.5" rx="1.5"/><path d="M6 14h4M8 11.5V14"/>'};
 const FILLED={todo:'<svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
   doing:'<svg viewBox="0 0 14 14"><circle cx="7" cy="7" r="5.6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M7 3.4a3.6 3.6 0 0 1 0 7.2z" fill="currentColor"/></svg>',
@@ -602,23 +602,36 @@ async function downloadFile(o){try{const{data,error}=await sb.storage.from(BUCKE
 async function openFile(o){const w=window.open("about:blank","_blank");
   try{const{data,error}=await sb.storage.from(BUCKET).createSignedUrl(o.f.path,600);if(error)throw new Error(error.message);if(w)w.location.href=data.signedUrl;else window.open(data.signedUrl,"_blank")}
   catch(e){if(w)w.close();toast(errMsg(e))}}
-const canDeleteFile=o=>S.isOwner||(o.uid===S.meId&&Date.now()-new Date(o.f.at)<864e5);
-async function deleteFile(o){const{data,error}=await sb.storage.from(BUCKET).remove([o.f.path]);
+const canDeleteFile=o=>S.isOwner||(o.uid===S.meId&&(o.f.kind==="link"||Date.now()-new Date(o.f.at)<864e5));
+function officeKind(url){const u=String(url);
+  if(/\/:w:\/|\.docx?(\?|$)|docs\.google\.com\/document/i.test(u))return"WORD";if(/\/:x:\/|\.xlsx?(\?|$)|docs\.google\.com\/spreadsheets/i.test(u))return"EXCEL";
+  if(/\/:p:\/|\.pptx?(\?|$)|docs\.google\.com\/presentation/i.test(u))return"PPT";return"LINK"}
+function linkForm(link){
+  const nm=h("input",{type:"text",id:"lk-name",required:true,placeholder:"es. Protocollo MIND v3"});const url=h("input",{type:"text",id:"lk-url",required:true,placeholder:"https://…sharepoint.com/:w:/…",inputmode:"url"});
+  openModal("Collega un documento condiviso",h("div",{class:"form"},h("label",{class:"full"},"Link di condivisione",url),h("label",{class:"full"},"Nome",nm),
+    h("p",{class:"hint full"},"Su OneDrive: clic destro sul file → Condividi → «Le persone di ETH Singapore SEC con il link» con permesso di modifica → Copia link. Chi lo apre lavora sullo stesso file in Word o Excel online, anche in contemporanea.")),async()=>{
+    let u;try{u=new URL(url.value.trim())}catch(e){toast("Il link non è valido.");return false}
+    if(u.protocol!=="https:"){toast("Usa un link che inizia con https://");return false}
+    if(!nm.value.trim()){toast("Dai un nome al documento.");return false}
+    await writeItem("files",S.meId,uid("l"),{kind:"link",url:u.href,name:nm.value.trim(),ext:officeKind(u.href),at:now(),...link});toast("Documento collegato")},"Collega")}
+async function deleteFile(o){if(o.f.kind==="link"){await writeItem("files",o.uid,o.fid,null);toast("Collegamento rimosso");return}
+  const{data,error}=await sb.storage.from(BUCKET).remove([o.f.path]);
   if(error)throw new Error(error.message);if(!data||!data.length)throw new Error("Puoi eliminare un tuo file solo entro 24 ore dal caricamento.");
   await writeItem("files",o.uid,o.fid,null);toast("File eliminato")}
 function fileRow(o,showLink){const{f}=o;const canDel=canDeleteFile(o);const t=f.task&&taskById(f.task);
   return h("div",{class:"frow"},h("span",{class:"ext"},(f.ext||"file").toUpperCase().slice(0,4)),
-    h("div",{class:"nm"},h("b",{text:f.name}),h("small",{text:[fmtSize(f.size),nameOf(o.uid),fmtWhen(f.at)].filter(Boolean).join(" · ")})),
+    h("div",{class:"nm"},h("b",{text:f.name}),h("small",{text:[f.kind==="link"?"documento condiviso, si modifica online":fmtSize(f.size),nameOf(o.uid),fmtWhen(f.at)].filter(Boolean).join(" · ")})),
     showLink&&t?h("button",{class:"chip",onclick:()=>openTask(t.id)},h("span",{text:tid(t)+" "+t.title})):null,
     h("div",{class:"inline",style:"gap:2px"},
-      h("button",{class:"icon-btn",title:"Scarica",onclick:()=>downloadFile(o)},ico("download")),
-      h("button",{class:"icon-btn",title:"Apri in una nuova scheda",onclick:()=>openFile(o)},ico("external")),
+      f.kind==="link"?h("a",{class:"btn sm",href:f.url,target:"_blank",rel:"noopener noreferrer"},ico("external"),"Apri"):null,
+      f.kind!=="link"?h("button",{class:"icon-btn",title:"Scarica",onclick:()=>downloadFile(o)},ico("download")):null,
+      f.kind!=="link"?h("button",{class:"icon-btn",title:"Apri in una nuova scheda",onclick:()=>openFile(o)},ico("external")):null,
       canDel?armed(h("button",{class:"btn sm danger ghost",title:"Elimina"},ico("trash")),"Conferma",()=>deleteFile(o)):null))}
 function dropZone(link,label){
   const input=h("input",{type:"file",multiple:true,hidden:true,id:"file-"+Math.random().toString(36).slice(2)});
   const btn=h("button",{class:"btn sm",onclick:()=>input.click()},ico("upload"),"Carica file");
   input.addEventListener("change",()=>{uploadMany([...input.files],link(),btn);input.value=""});
-  const z=h("div",{class:"drop"},btn,h("span",{},label||"oppure trascina qui. Qualsiasi formato, fino a 50 MB."),input);
+  const z=h("div",{class:"drop"},btn,h("button",{class:"btn sm",onclick:()=>linkForm(link())},ico("link"),"Collega documento condiviso"),h("span",{},label||"oppure trascina qui un file, fino a 50 MB."),input);
   z.addEventListener("dragover",e=>{e.preventDefault();z.classList.add("over")});
   z.addEventListener("dragleave",()=>z.classList.remove("over"));
   z.addEventListener("drop",e=>{e.preventDefault();z.classList.remove("over");uploadMany([...e.dataTransfer.files],link(),btn)});
@@ -872,14 +885,14 @@ function inviteForm(){const em=h("input",{type:"email",id:"iv-email",required:tr
   const ti=h("input",{type:"text",id:"iv-title",placeholder:"es. Assegnista"});const gr=h("input",{type:"text",id:"iv-grp",placeholder:"es. Raccolta dati"});
   const ro=sel("iv-role",[["collab","Collaboratore"],["coord","Coordinatore del gruppo"]],"collab");
   openModal("Aggiungi persona",h("div",{class:"form"},h("label",{class:"two"},"Email (sarà il nome utente)",em),h("label",{},"Nome",nm),h("label",{},"Ruolo",ti),h("label",{},"Gruppo",gr),h("label",{},"Permessi",ro),
-    h("p",{class:"hint full"},"Creo l'account con una password temporanea che vedrai una sola volta: mandala alla persona su Teams. Al primo accesso ne sceglierà una sua.")),async()=>{
+    h("p",{class:"hint full"},"Creo l'account con una password temporanea che vedrai una sola volta: mandala alla persona su Slack. Al primo accesso ne sceglierà una sua.")),async()=>{
     if(ro.value==="coord"&&!gr.value.trim()){toast("Un coordinatore deve avere un gruppo.");return false}
     const r=await adminCall({action:"create",email:em.value,name:nm.value.trim(),title:ti.value.trim(),grp:gr.value.trim(),role:ro.value});
     await loadProfiles();setTimeout(()=>showSecret("Account creato",em.value.trim().toLowerCase(),r.password),0)},"Crea account")}
 function showSecret(title,email,pw){const link=location.origin+location.pathname;
   const msg="Ciao! Ti ho creato un account sul gestionale del team FHT.\n\nIndirizzo: "+link+"\nEmail: "+email+"\nPassword temporanea: "+pw+"\n\nAl primo accesso ti chiederà di scegliere una password tua.";
   const ta=h("textarea",{id:"secret-msg",style:"min-height:150px"});ta.value=msg;
-  openModal(title,[h("p",{class:"hint",style:"font-size:13.5px"},"Questa password si vede solo adesso. Copia il messaggio e mandalo su Teams."),h("div",{class:"secret"},pw),ta,
+  openModal(title,[h("p",{class:"hint",style:"font-size:13.5px"},"Questa password si vede solo adesso. Copia il messaggio e mandalo su Slack."),h("div",{class:"secret"},pw),ta,
     h("div",{},h("button",{type:"button",class:"btn",onclick:()=>copyText(msg,ta)},ico("copy"),"Copia messaggio"))],async()=>{},"Fatto")}
 
 /* ---------- recurring ---------- */
