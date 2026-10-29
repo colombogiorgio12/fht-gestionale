@@ -133,6 +133,9 @@ label.chk{display:inline-flex;gap:6px;align-items:center;color:var(--ink-2);font
 .av{width:18px;height:18px;border-radius:50%;flex:none;object-fit:cover;display:inline-grid;place-items:center;font-size:9px;font-weight:600;color:#fff;background:var(--faint)}
 .av.lg{width:28px;height:28px;font-size:11px}
 .av.none{background:none;border:1px dashed var(--faint)}
+.avs{display:inline-flex;align-items:center;flex:none}.avs .av{box-shadow:0 0 0 2px var(--bg)}.avs .av+.av{margin-left:-5px}.avs .more{background:var(--line);color:var(--ink-2)}
+.picks{display:flex;flex-direction:column;gap:2px;max-height:168px;overflow-y:auto;border:1px solid var(--line);border-radius:6px;padding:4px}
+.picks label.chk{padding:3px 6px;border-radius:5px;color:var(--ink)}.picks label.chk:hover{background:var(--hover)}
 .tid{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums;flex:none;min-width:54px}
 .s-todo{color:var(--muted)} .s-doing{color:var(--amber)} .s-review{color:var(--blue)} .s-done{color:var(--accent-fg)}
 .prio{color:var(--muted)} .prio-urgent{color:var(--orange)} .prio-none{color:var(--faint)}
@@ -506,15 +509,21 @@ function who(id){return h("span",{class:"inline",style:"gap:7px;flex-wrap:nowrap
 const mem=id=>S.members[id]||{};
 const emailOf=id=>((S.prefs[id]||{}).email)||((S.people[id]||{}).email)||"";
 function teamIds(){const ids=new Set(Object.keys(S.members));if(S.meId)ids.add(S.meId);return[...ids]}
-function peopleIds(){const ids=new Set(teamIds());S.tasks.forEach(t=>t.assignee&&ids.add(t.assignee));S.goals.forEach(g=>g.owner&&ids.add(g.owner));
+function peopleIds(){const ids=new Set(teamIds());S.tasks.forEach(t=>asg(t).forEach(i=>ids.add(i)));S.goals.forEach(g=>g.owner&&ids.add(g.owner));
   ["notes","files","status","work","requests"].forEach(c=>Object.keys(S[c]).forEach(i=>ids.add(i)));return[...ids]}
 const isCoord=()=>!S.isOwner&&!!mem(S.meId).coord&&S.canEdit;
 const isManager=()=>S.isOwner||isCoord();
 const myGroup=()=>mem(S.meId).group||"";
 const inMyGroup=id=>!!myGroup()&&mem(id).group===myGroup();
-function manages(t){if(S.isOwner)return true;if(!isCoord())return false;return t.createdBy===S.meId||t.assignee===S.meId||(!!t.assignee&&inMyGroup(t.assignee))}
-const canWork=t=>manages(t)||t.assignee===S.meId;
-function scopeTasks(){return S.isOwner?S.tasks:isCoord()?S.tasks.filter(manages):S.tasks.filter(t=>t.assignee===S.meId)}
+const asg=t=>Array.isArray(t.assignees)?t.assignees.filter(Boolean):(t.assignee?[t.assignee]:[]);
+const isAsg=(t,id)=>asg(t).includes(id);
+const namesOf=t=>{const a=asg(t);return a.length?a.map(nameOf).join(", "):"Unassigned"};
+const asgPatch=ids=>{const a=[...new Set(ids.filter(Boolean))];return{assignees:a,assignee:a[0]||null}};
+function avatars(t){const a=asg(t);if(a.length<2)return avatar(a[0]||null);
+  return h("span",{class:"avs",title:a.map(nameOf).join(", ")},a.slice(0,3).map(id=>avatar(id)),a.length>3?h("span",{class:"av more"},"+"+(a.length-3)):null)}
+function manages(t){if(S.isOwner)return true;if(!isCoord())return false;return t.createdBy===S.meId||isAsg(t,S.meId)||asg(t).some(inMyGroup)}
+const canWork=t=>manages(t)||isAsg(t,S.meId);
+function scopeTasks(){return S.isOwner?S.tasks:isCoord()?S.tasks.filter(manages):S.tasks.filter(t=>isAsg(t,S.meId))}
 function scopePeople(){const ids=teamIds();if(S.isOwner)return ids;if(isCoord())return ids.filter(i=>i===S.meId||inMyGroup(i));return[S.meId]}
 function peopleOpts(ids){return(ids||scopePeople()).slice().sort((a,b)=>nameOf(a).localeCompare(nameOf(b))).map(i=>[i,nameOf(i)+(i===S.meId?" (tu)":"")])}
 const roleLabel=()=>S.isOwner?"Super admin":isCoord()?"Coordinator":"Collaborator";
@@ -522,8 +531,13 @@ const roleLabel=()=>S.isOwner?"Super admin":isCoord()?"Coordinator":"Collaborato
 /* ---------- task state ---------- */
 function statusInfo(t){let best=null;for(const[u,d]of Object.entries(S.status)){const e=d&&d.items&&d.items[t.id];if(e&&(!best||e.at>best.at))best={...e,uid:u}}return best}
 const statusOf=t=>(statusInfo(t)||{}).s||"todo";
-function workOf(t){const u=t.assignee;const own=u&&S.work[u]&&S.work[u].items&&S.work[u].items[t.id];if(own)return own;
-  for(const d of Object.values(S.work)){const e=d&&d.items&&d.items[t.id];if(e)return e}return{}}
+function workOf(t){const done={},extra=[],log=[],seen=new Set();
+  for(const[u,d]of Object.entries(S.work)){const e=d&&d.items&&d.items[t.id];if(!e)continue;
+    for(const[c,v]of Object.entries(e.done||{})){const x=v&&typeof v==="object"?v:{v:!!v,at:""};if(!done[c]||(x.at||"")>=(done[c].at||""))done[c]=x}
+    for(const it of e.extra||[])if(!seen.has(it.id)){seen.add(it.id);extra.push({...it,owner:u})}
+    for(const l of e.log||[])log.push({...l,owner:u})}
+  return{done:Object.fromEntries(Object.entries(done).map(([c,x])=>[c,!!x.v])),extra,log}}
+const ownWork=(t,u)=>{const d=S.work[u||S.meId];return(d&&d.items&&d.items[t.id])||{}};
 function checklistOf(t){const w=workOf(t);const done=w.done||{};
   return[...(t.checklist||[]).map(c=>({...c,base:true})),...(w.extra||[]).map(c=>({...c,base:false}))].map(c=>({...c,done:!!done[c.id]}))}
 function progressOf(t){const s=statusOf(t);if(s==="done")return 1;const cl=checklistOf(t);if(cl.length)return cl.filter(c=>c.done).length/cl.length;return{todo:0,doing:.4,review:.8}[s]||0}
@@ -567,15 +581,13 @@ function writeItem(col,owner,key,value){const path=col+"/"+owner;const ref=S.db.
     else await ref.set({items:{[key]:value}});
     S.known[path]=true;})}
 function savePrefs(id,patch){const path="prefs/"+id;return serial(path,()=>S.db.doc(path).set({...(S.prefs[id]||{}),...patch}))}
-async function setStatus(t,s){try{await writeItem("status",t.assignee||S.meId,t.id,{s,at:now(),by:S.meId});toast(tid(t)+" → "+STATUS_L[s])}catch(e){toast(errMsg(e))}}
-async function saveWork(t,patch){const cur=workOf(t);
-  await writeItem("work",t.assignee||S.meId,t.id,{done:{...(cur.done||{})},extra:[...(cur.extra||[])],log:[...(cur.log||[])],...patch})}
+async function setStatus(t,s){try{await writeItem("status",S.meId,t.id,{s,at:now(),by:S.meId});toast(tid(t)+" → "+STATUS_L[s])}catch(e){toast(errMsg(e))}}
 async function updateTask(t,patch,msg){try{const{id,...rest}=t;await S.db.doc("tasks/"+id).set({...rest,...patch,updatedAt:now()});if(msg)toast(msg)}catch(e){toast(errMsg(e))}}
 
 /* ---------- recurring tasks ---------- */
 function advance(s,freq){if(freq==="monthly"){const d=parse(s);const day=d.getDate();d.setDate(1);d.setMonth(d.getMonth()+1);d.setDate(Math.min(day,new Date(d.getFullYear(),d.getMonth()+1,0).getDate()));return ymd(d)}return addDays(s,freq==="biweekly"?14:7)}
 async function spawnFromTemplate(tp,date){const id="tpl_"+tp.id+"_"+date.replace(/-/g,"");
-  if(!taskById(id))await S.db.doc("tasks/"+id).set({title:tp.title,desc:tp.desc||"",assignee:tp.assignee||null,priority:tp.priority||"medium",
+  if(!taskById(id))await S.db.doc("tasks/"+id).set({title:tp.title,desc:tp.desc||"",...asgPatch(tp.assignees||(tp.assignee?[tp.assignee]:[])),priority:tp.priority||"medium",
     start:date,due:addDays(date,Math.max(0,+tp.dueDays||0)),goal:tp.goal||null,estimate:tp.estimate||null,num:nextNum(),
     checklist:(tp.checklist||[]).map(c=>({...c})),tpl:tp.id,createdAt:now(),createdBy:S.meId});return id}
 async function runTemplates(){if(S.ranTpl||!isManager())return;S.ranTpl=true;const today=todayStr();
@@ -641,11 +653,11 @@ function dropZone(link,label){
 let popEl=null;
 function closePop(){if(popEl){popEl.remove();popEl=null;document.removeEventListener("mousedown",popOutside,true)}}
 function popOutside(e){if(popEl&&!popEl.contains(e.target))closePop()}
-function popMenu(anchor,items,current,onPick,search){closePop();
+function popMenu(anchor,items,current,onPick,search,multi){closePop();const cur=multi?[...current]:null;
   const box=h("div",{class:"pop-items"});const pop=h("div",{class:"pop",role:"menu"});
   const q=search?h("input",{type:"text",class:"pop-q",placeholder:search,"aria-label":search}):null;if(q)pop.append(q);pop.append(box);
-  const draw=f=>box.replaceChildren(...items.filter(it=>!f||it.label.toLowerCase().includes(f)).map(it=>h("button",{class:"pop-it",role:"menuitem",onclick:e=>{e.stopPropagation();closePop();onPick(it.value)}},
-    it.el?it.el():it.icon?ico(it.icon,it.cls):null,h("span",{class:"pop-l",text:it.label}),it.value===current?ico("checkmark","muted"):null)));
+  const draw=f=>box.replaceChildren(...items.filter(it=>!f||it.label.toLowerCase().includes(f)).map(it=>h("button",{class:"pop-it",role:"menuitem",onclick:e=>{e.stopPropagation();if(multi){const i=cur.indexOf(it.value);i<0?cur.push(it.value):cur.splice(i,1);draw(q?q.value.trim().toLowerCase():"");onPick(cur.slice());return}closePop();onPick(it.value)}},
+    it.el?it.el():it.icon?ico(it.icon,it.cls):null,h("span",{class:"pop-l",text:it.label}),(multi?cur.includes(it.value):it.value===current)?ico("checkmark","muted"):null)));
   draw("");if(q)q.addEventListener("input",()=>draw(q.value.trim().toLowerCase()));
   document.body.append(pop);popEl=pop;const r=anchor.getBoundingClientRect();
   let x=Math.min(r.left,innerWidth-pop.offsetWidth-8),y=r.bottom+4;if(y+pop.offsetHeight>innerHeight-8)y=Math.max(8,r.top-pop.offsetHeight-4);
@@ -659,7 +671,7 @@ function popMenu(anchor,items,current,onPick,search){closePop();
     else if(e.key==="Escape"){e.stopPropagation();closePop();anchor.focus()}})}
 function statusMenu(a,t){popMenu(a,STATUSES.map(([k,l])=>({value:k,label:l,icon:k,cls:"s-"+k})),statusOf(t),v=>v!==statusOf(t)&&setStatus(t,v))}
 function prioMenu(a,t){popMenu(a,PRIOS.map(([k,l])=>({value:k,label:l,el:()=>prioIco(k)})),t.priority,v=>updateTask(t,{priority:v},"Priority: "+PRIO_L[v]))}
-function assigneeMenu(a,t){popMenu(a,[{value:"",label:"Unassigned",el:()=>avatar(null)},...peopleOpts().map(([v,l])=>({value:v,label:l,el:()=>avatar(v)}))],t.assignee||"",v=>updateTask(t,{assignee:v||null},"Assigned to "+nameOf(v||null)),"Assign to…")}
+function assigneeMenu(a,t){popMenu(a,peopleOpts().map(([v,l])=>({value:v,label:l,el:()=>avatar(v)})),asg(t),ids=>{const tt=taskById(t.id)||t;updateTask(tt,asgPatch(ids),ids.length?"Assigned to "+ids.map(nameOf).join(", "):"Unassigned")},"Assign to…",true)}
 function goalMenu(a,t){popMenu(a,[{value:"",label:"No goal",icon:"x"},...S.goals.map(g=>({value:g.id,label:g.title,icon:"target"}))],t.goal||"",v=>updateTask(t,{goal:v||null},"Goal updated"),"Goal…")}
 
 /* ---------- shell ---------- */
@@ -672,7 +684,7 @@ $("#scrim").addEventListener("click",()=>toggleNav(false));
 function renderSide(){
   const vl=viewList();if(!vl.some(v=>v[0]===S.view))S.view="my";
   const pend=isManager()?pendingForMe().length:0;const fl=isManager()?flagged().filter(x=>x.r.level==="late").length:0;
-  const myOpen=S.tasks.filter(t=>t.assignee===S.meId&&statusOf(t)!=="done").length;
+  const myOpen=S.tasks.filter(t=>isAsg(t,S.meId)&&statusOf(t)!=="done").length;
   const items=[];
   for(const[k,l,i]of vl){if(SECS[k])items.push(h("div",{class:"nav-sec"},SECS[k]));
     const b=k==="my"&&myOpen?h("span",{class:"nav-b"},String(myOpen)):k==="requests"&&pend?h("span",{class:"nav-b red",title:"Pending requests"},String(pend)):k==="overview"&&fl?h("span",{class:"nav-b red",title:"Overdue tasks"},String(fl)):null;
@@ -709,9 +721,9 @@ function taskRowEl(t){const st=statusOf(t),r=riskOf(t),cl=checklistOf(t),g=goalO
     h("button",{class:"st-btn",title:STATUS_L[st]+(canWork(t)?" (cambia)":""),onclick:e=>{e.stopPropagation();canWork(t)?statusMenu(e.currentTarget,t):openTask(t.id)}},stIco(st)),
     h("span",{class:"ttl",text:t.title}),g?h("span",{class:"chip goal"},ico("target"),h("span",{text:g.title})):null,h("span",{class:"spacer"}),
     riskPill(r),cl.length?h("span",{class:"meta-n",title:"Checklist"},ico("check"),cl.filter(c=>c.done).length+"/"+cl.length):null,
-    dueChip(t),avatar(t.assignee))}
+    dueChip(t),avatars(t))}
 function taskCard(t){const st=statusOf(t),r=riskOf(t),cl=checklistOf(t);
-  return h("button",{class:"card"+(r?" flag-"+r.level:""),onclick:()=>openTask(t.id)},h("div",{class:"top"},h("span",{class:"tid"},tid(t)),h("span",{class:"grow"}),avatar(t.assignee)),
+  return h("button",{class:"card"+(r?" flag-"+r.level:""),onclick:()=>openTask(t.id)},h("div",{class:"top"},h("span",{class:"tid"},tid(t)),h("span",{class:"grow"}),avatars(t)),
     h("div",{class:"inline",style:"gap:8px;flex-wrap:nowrap;align-items:flex-start"},stIco(st),h("span",{class:"t",text:t.title})),
     h("div",{class:"meta"},prioIco(t.priority),dueChip(t),riskPill(r),cl.length?h("span",{class:"meta-n"},ico("check"),cl.filter(c=>c.done).length+"/"+cl.length):null))}
 function listView(key){return{
@@ -729,11 +741,11 @@ function listView(key){return{
   update(){const f=S.lf[key];
     if(R.who){const c=f.who;R.who.replaceChildren(...[["","All people"],...peopleOpts(teamIds())].map(([v,l])=>h("option",{value:v},l)));R.who.value=c}
     {const c=f.goal;R.goal.replaceChildren(...[["","Any goal"],...S.goals.map(g=>[g.id,g.title])].map(([v,l])=>h("option",{value:v},l)));R.goal.value=c}
-    let ts=key==="my"?S.tasks.filter(t=>t.assignee===S.meId):S.tasks.slice();
-    if(f.who)ts=ts.filter(t=>t.assignee===f.who);if(f.prio)ts=ts.filter(t=>t.priority===f.prio);if(f.goal)ts=ts.filter(t=>t.goal===f.goal);if(f.flag)ts=ts.filter(t=>riskOf(t));
+    let ts=key==="my"?S.tasks.filter(t=>isAsg(t,S.meId)):S.tasks.slice();
+    if(f.who)ts=ts.filter(t=>isAsg(t,f.who));if(f.prio)ts=ts.filter(t=>t.priority===f.prio);if(f.goal)ts=ts.filter(t=>t.goal===f.goal);if(f.flag)ts=ts.filter(t=>riskOf(t));
     const q=f.q.trim().toLowerCase();if(q)ts=ts.filter(t=>(tid(t)+" "+(t.title||"")+" "+(t.desc||"")).toLowerCase().includes(q));
     ts.sort(sortTasks);
-    if(!S.tasks.length||(key==="my"&&!S.tasks.some(t=>t.assignee===S.meId))){R.body.replaceChildren(emptyEl(key==="my"?"No tasks assigned to you":"No tasks yet",isManager()?"Press C or “New task” to create one.":"When a task is assigned to you it will show up here. You can also propose one."));return}
+    if(!S.tasks.length||(key==="my"&&!S.tasks.some(t=>isAsg(t,S.meId)))){R.body.replaceChildren(emptyEl(key==="my"?"No tasks assigned to you":"No tasks yet",isManager()?"Press C or “New task” to create one.":"When a task is assigned to you it will show up here. You can also propose one."));return}
     if(S.mode[key]==="board"){R.body.replaceChildren(h("div",{class:"board"},STATUSES.map(([k,l])=>{const c=ts.filter(t=>statusOf(t)===k);
       return h("div",{class:"bcol"},h("div",{class:"bcol-h"},stIco(k),h("span",{},l),h("span",{class:"n"},String(c.length))),c.length?c.map(taskCard):h("div",{class:"bempty"},"No tasks"))})));return}
     const out=[];for(const k of["doing","review","todo","done"]){const c=ts.filter(t=>statusOf(t)===k);if(!c.length)continue;
@@ -755,7 +767,7 @@ V.overview={
       mgr?st(fmtH(open.reduce((a,t)=>a+(+t.estimate||0),0)),"Estimated open hours"):st(ts.length-open.length,"Completed")));
     const left=[],right=[];
     if(mgr){
-      if(fl.length)left.push(sec("Needs attention",fl.length,h("div",{},fl.slice(0,10).map(({t,r})=>h("div",{class:"lrow click",onclick:()=>openTask(t.id)},stIco(statusOf(t)),h("div",{class:"main-t"},h("b",{text:t.title}),h("small",{text:nameOf(t.assignee)+" · "+r.why})),riskPill(r),avatar(t.assignee)))),{cls:"alert",icon:"flag"}));
+      if(fl.length)left.push(sec("Needs attention",fl.length,h("div",{},fl.slice(0,10).map(({t,r})=>h("div",{class:"lrow click",onclick:()=>openTask(t.id)},stIco(statusOf(t)),h("div",{class:"main-t"},h("b",{text:t.title}),h("small",{text:namesOf(t)+" · "+r.why})),riskPill(r),avatars(t)))),{cls:"alert",icon:"flag"}));
       const pq=pendingForMe();if(pq.length)left.push(sec("Pending requests",pq.length,h("div",{},pq.slice(0,5).map(o=>h("div",{class:"lrow click",onclick:()=>go("requests")},avatar(o.uid),h("div",{class:"main-t"},h("b",{text:reqTitle(o)}),h("small",{text:nameOf(o.uid)+" · "+fmtWhen(o.r.at)}))))),{icon:"inbox"}));
     }else{
       const pr=S.prefs[S.meId]||{};const days=(pr.remind&&pr.remind.length?pr.remind:[1,3]);const maxD=Math.max(...days);
@@ -765,16 +777,16 @@ V.overview={
       if(ans.length)left.push(sec("Replies to your requests",ans.length,h("div",{},ans.map(o=>h("div",{class:"lrow"},h("div",{class:"main-t"},h("b",{text:reqTitle(o)}),o.r.reply?h("small",{text:"“"+o.r.reply+"”"}):null),h("span",{class:"pill q-"+o.r.state},o.r.state==="approved"?"Approved":"Declined")))),{icon:"inbox"}));
     }
     const due=open.filter(t=>t.due).sort((a,b)=>a.due.localeCompare(b.due)).slice(0,8);
-    left.push(sec("Upcoming deadlines",null,due.length?h("div",{},due.map(t=>h("div",{class:"lrow click",onclick:()=>openTask(t.id)},prioIco(t.priority),stIco(statusOf(t)),h("div",{class:"main-t"},h("b",{text:t.title}),h("small",{text:tid(t)+(mgr?" · "+nameOf(t.assignee):"")+" · "+Math.round(progressOf(t)*100)+"%"})),dueChip(t),avatar(t.assignee)))):emptyEl(S.tasks.length?"No upcoming deadlines":"No tasks yet",null),{icon:"cal"}));
+    left.push(sec("Upcoming deadlines",null,due.length?h("div",{},due.map(t=>h("div",{class:"lrow click",onclick:()=>openTask(t.id)},prioIco(t.priority),stIco(statusOf(t)),h("div",{class:"main-t"},h("b",{text:t.title}),h("small",{text:tid(t)+(mgr?" · "+namesOf(t):"")+" · "+Math.round(progressOf(t)*100)+"%"})),dueChip(t),avatars(t)))):emptyEl(S.tasks.length?"No upcoming deadlines":"No tasks yet",null),{icon:"cal"}));
     const acts=[];const tt=id=>{const t=taskById(id);return t?tid(t)+" "+t.title:null};
     for(const o of itemsOf("status"))if(tt(o.key))acts.push({at:o.v.at,who:o.v.by||o.uid,txt:"moved "+tt(o.key)+" to "+STATUS_L[o.v.s],task:o.key,icon:o.v.s});
     for(const o of itemsOf("notes"))if(tt(o.v.task))acts.push({at:o.v.at,who:o.uid,txt:"commented on "+tt(o.v.task),task:o.v.task,icon:"comment"});
     for(const o of itemsOf("files"))acts.push({at:o.v.at,who:o.uid,txt:"uploaded “"+o.v.name+"”",task:o.v.task,icon:"clip"});
     for(const o of itemsOf("work"))if(tt(o.key))for(const l of(o.v.log||[]))acts.push({at:l.at,who:l.by||o.uid,txt:"logged "+fmtH(+l.h)+" on "+tt(o.key),task:o.key,icon:"clock"});
-    const vis=acts.filter(a=>!a.task||(()=>{const t=taskById(a.task);return t&&(S.isOwner||manages(t)||t.assignee===S.meId)})()).sort((a,b)=>(b.at||"").localeCompare(a.at||""));
+    const vis=acts.filter(a=>!a.task||(()=>{const t=taskById(a.task);return t&&(S.isOwner||manages(t)||isAsg(t,S.meId))})()).sort((a,b)=>(b.at||"").localeCompare(a.at||""));
     right.push(sec("Activity",null,vis.length?h("div",{},vis.slice(0,10).map(a=>h("div",{class:"lrow"+(a.task?" click":""),onclick:a.task?()=>openTask(a.task):null},avatar(a.who),h("div",{class:"main-t"},h("b",{style:"font-weight:400",text:nameOf(a.who)+" "+a.txt}),h("small",{text:fmtWhen(a.at)}))))):emptyEl("No activity yet","Status changes, comments, files and hours show up here."),{icon:"spark"}));
     if(mgr){const since=new Date(Date.now()-7*864e5).toISOString();
-      right.push(sec("Team workload",null,h("div",{},scopePeople().map(id=>{const o=S.tasks.filter(t=>t.assignee===id&&statusOf(t)!=="done");const lt=o.filter(t=>riskOf(t)?.level==="late").length;
+      right.push(sec("Team workload",null,h("div",{},scopePeople().map(id=>{const o=S.tasks.filter(t=>isAsg(t,id)&&statusOf(t)!=="done");const lt=o.filter(t=>riskOf(t)?.level==="late").length;
         const est=o.reduce((a,t)=>a+(+t.estimate||0),0);return h("div",{class:"lrow"},avatar(id),h("div",{class:"main-t"},h("b",{text:nameOf(id)}),h("small",{text:o.length+" open · estimate "+fmtH(est)+" · 7 g "+fmtH(hoursLogged(id,since))})),lt?h("span",{class:"pill r-late"},lt+" overdue"):null)})),{icon:"users"}))}
     right.push(sec("Goals",S.goals.length||null,S.goals.length?h("div",{},S.goals.slice().sort((a,b)=>(a.due||"9").localeCompare(b.due||"9")).map(g=>{const pc=goalPct(g);
       return h("div",{class:"lrow click",onclick:()=>{S.lf.tasks.goal=g.id;go("tasks")}},ring(pc),h("div",{class:"main-t"},h("b",{text:g.title}),g.due?h("small",{text:"By "+fmtDate(g.due)}):null),h("span",{class:"muted tnum"},pc+"%"))})):emptyEl("No goal",S.isOwner?"Set them up in Goals.":null),{icon:"target"}));
@@ -782,7 +794,7 @@ V.overview={
     R.c.replaceChildren(...out)}};
 
 /* ---------- calendar & timeline ---------- */
-function calTasks(){return S.isOwner||!S.f.mine?S.tasks:S.tasks.filter(t=>t.assignee===S.meId||manages(t))}
+function calTasks(){return S.isOwner||!S.f.mine?S.tasks:S.tasks.filter(t=>isAsg(t,S.meId)||manages(t))}
 function calView(kind){return{
   mount(m){if(!S.cal.month)S.cal.month=todayStr().slice(0,7);if(!S.cal.gStart)S.cal.gStart=addDays(mondayOf(todayStr()),-7);
     const shift=n=>{if(kind==="month"){const d=parse(S.cal.month+"-01");d.setMonth(d.getMonth()+n);S.cal.month=ymd(d).slice(0,7)}else S.cal.gStart=addDays(S.cal.gStart,28*n);this.update()};
@@ -798,7 +810,7 @@ function calView(kind){return{
     for(let i=0;i<weeks*7;i++){const ds=addDays(start,i);const dt=parse(ds);
       const its=[...S.goals.filter(g=>g.due===ds).map(g=>h("button",{class:"it goal",title:"Goal: "+g.title,onclick:()=>go("goals")},ico("target"),h("span",{text:g.title}))),
         ...ts.filter(t=>t.due===ds).sort(sortTasks).map(t=>{const r=riskOf(t);const st=statusOf(t);
-          return h("button",{class:"it"+(st==="done"?" done":r?" "+r.level:""),title:tid(t)+" "+t.title+" · "+nameOf(t.assignee),onclick:()=>openTask(t.id)},stIco(st),h("span",{text:t.title}))})];
+          return h("button",{class:"it"+(st==="done"?" done":r?" "+r.level:""),title:tid(t)+" "+t.title+" · "+namesOf(t),onclick:()=>openTask(t.id)},stIco(st),h("span",{text:t.title}))})];
       cells.push(h("div",{class:"day"+(dt.getMonth()!==first.getMonth()?" out":"")+(ds===today?" today":"")},h("span",{class:"dn"},String(dt.getDate())),its))}
     R.body.replaceChildren(h("div",{class:"scroll"},h("div",{class:"cal"},cells)))},
   gantt(){const from=S.cal.gStart,days=63,to=addDays(from,days-1);R.label.textContent=fmtDate(from,true)+" – "+fmtDate(to,true);
@@ -810,7 +822,7 @@ function calView(kind){return{
     if(gs.length)rows.push(h("div",{class:"g-row"},h("div",{class:"g-lab"},ico("target"),h("div",{class:"t"},h("b",{},"Goals"),h("small",{text:gs.map(g=>g.title).join(" · ")}))),
       track(gs.map(g=>h("div",{class:"g-ms",title:g.title+" · "+fmtDate(g.due),style:"left:"+(diffDays(from,g.due)*DW+DW/2)+"px"})))));
     for(const t of ts){const s=Math.max(0,diffDays(from,startOf(t)));const e=Math.min(days-1,diffDays(from,t.due));const r=riskOf(t);const st=statusOf(t);
-      rows.push(h("div",{class:"g-row"},h("div",{class:"g-lab click",onclick:()=>openTask(t.id)},stIco(st),h("div",{class:"t"},h("b",{text:t.title}),h("small",{text:tid(t)+" · "+nameOf(t.assignee)}))),
+      rows.push(h("div",{class:"g-row"},h("div",{class:"g-lab click",onclick:()=>openTask(t.id)},stIco(st),h("div",{class:"t"},h("b",{text:t.title}),h("small",{text:tid(t)+" · "+namesOf(t)}))),
         track(h("button",{class:"g-bar s-"+st+(r?" "+r.level:""),title:t.title+" · "+fmtDate(startOf(t))+" → "+fmtDate(t.due)+(r?" · "+r.why:""),style:"left:"+(s*DW+2)+"px;width:"+Math.max(DW-4,(e-s+1)*DW-4)+"px",onclick:()=>openTask(t.id)},Math.round(progressOf(t)*100)+"%"))))}
     R.body.replaceChildren(ts.length||gs.length?h("div",{class:"scroll"},h("div",{style:"width:"+(240+W)+"px"},rows)):h("div",{class:"sec"},emptyEl("No tasks due in these weeks",null)))}}}
 V.calendar=calView("month");V.timeline=calView("gantt");
@@ -845,7 +857,7 @@ V.requests={
     R.c.replaceChildren(...out)}};
 async function decide(o,ok,reply,btn){btn.disabled=true;const r=o.r;
   try{if(ok){if(r.type==="extend"){const t=taskById(r.task);if(t){const{id,...rest}=t;await S.db.doc("tasks/"+id).set({...rest,due:r.newDue,updatedAt:now()})}}
-      else await S.db.collection("tasks").add({title:r.title,desc:r.desc||"",assignee:o.uid,priority:r.priority||"medium",start:todayStr(),due:r.due||null,goal:r.goal||null,estimate:r.estimate||null,num:nextNum(),createdAt:now(),createdBy:S.meId,fromRequest:o.rid})}
+      else await S.db.collection("tasks").add({title:r.title,desc:r.desc||"",...asgPatch([o.uid]),priority:r.priority||"medium",start:todayStr(),due:r.due||null,goal:r.goal||null,estimate:r.estimate||null,num:nextNum(),createdAt:now(),createdBy:S.meId,fromRequest:o.rid})}
     await writeItem("requests",o.uid,o.rid,{...r,state:ok?"approved":"rejected",decidedAt:now(),decidedBy:S.meId,reply:(reply||"").trim()});toast(ok?"Request approved":"Request declined")}
   catch(e){toast(errMsg(e));btn.disabled=false}}
 
@@ -865,7 +877,7 @@ V.team={
   mount(m){m.append(bar("users","People",null,S.isOwner?[h("button",{class:"btn primary",onclick:inviteForm},ico("plus"),"Add person")]:[]));R.c=h("div",{class:"content"});m.append(R.c)},
   update(){const since=new Date(Date.now()-7*864e5).toISOString();
     const ids=(S.isOwner||isCoord()?teamIds():Object.keys(S.members)).sort((a,b)=>(mem(b).admin?1:0)-(mem(a).admin?1:0)||nameOf(a).localeCompare(nameOf(b)));
-    const rows=ids.map(id=>{const md=mem(id);const pp=S.people[id]||{};const o=S.tasks.filter(t=>t.assignee===id&&statusOf(t)!=="done");const lt=o.filter(t=>riskOf(t)?.level==="late").length,rk=o.filter(t=>riskOf(t)?.level==="risk").length;
+    const rows=ids.map(id=>{const md=mem(id);const pp=S.people[id]||{};const o=S.tasks.filter(t=>isAsg(t,id)&&statusOf(t)!=="done");const lt=o.filter(t=>riskOf(t)?.level==="late").length,rk=o.filter(t=>riskOf(t)?.level==="risk").length;
       const roleTxt=md.admin?"Super admin":md.coord?"Coordinator":(md.role||"Collaborator");
       const sub=[roleTxt,md.coord&&md.role?md.role:null,md.group?"Group "+md.group:null,(S.isOwner||isCoord())?emailOf(id):null,S.isOwner&&pp.must_change?"hasn't signed in yet":null].filter(Boolean).join(" · ");
       const menu=[{value:"tasks",label:"See their tasks",icon:"list"},S.isOwner&&!md.admin&&{value:"edit",label:"Role, group and permissions",icon:"edit"},
@@ -900,7 +912,7 @@ V.recurring={
   mount(m){m.append(bar("repeat","Recurring","templates that create a task each time it is due",[h("button",{class:"btn primary",onclick:()=>templateForm()},ico("plus"),"New template")]));R.c=h("div",{class:"content"});m.append(R.c)},
   update(){const tps=S.templates.filter(tp=>S.isOwner||tp.createdBy===S.meId).sort((a,b)=>(a.next||"").localeCompare(b.next||""));
     R.c.replaceChildren(sec("Templates",tps.length,tps.length?h("div",{},tps.map(tp=>h("div",{class:"lrow"},prioIco(tp.priority),h("div",{class:"main-t"},h("b",{text:tp.title}),h("small",{text:FREQ_L[tp.freq]+" · due in "+(tp.dueDays||0)+" d"+(tp.checklist&&tp.checklist.length?" · "+tp.checklist.length+" items":"")})),
-      h("span",{class:"pill "+(tp.active?"on":"off")},tp.active?"Active":"Paused"),h("span",{class:"due"},ico("repeat"),tp.next?fmtDate(tp.next,true):"—"),avatar(tp.assignee),
+      h("span",{class:"pill "+(tp.active?"on":"off")},tp.active?"Active":"Paused"),h("span",{class:"due"},ico("repeat"),tp.next?fmtDate(tp.next,true):"—"),avatars(tp),
       h("button",{class:"icon-btn","aria-label":"Actions",onclick:e=>popMenu(e.currentTarget,[{value:"edit",label:"Edit",icon:"edit"},{value:"toggle",label:tp.active?"Pause":"Reactivate",icon:tp.active?"pause":"play"},{value:"now",label:"Create a task now",icon:"plus"},{value:"del",label:"Delete template",icon:"trash"}],null,async v=>{
         try{if(v==="edit")templateForm(tp);else if(v==="toggle"){const{id,...rest}=tp;await S.db.doc("templates/"+id).set({...rest,active:!tp.active})}
           else if(v==="now"){const t=await spawnFromTemplate(tp,todayStr());toast("Task created");openTask(t)}
@@ -910,7 +922,7 @@ V.recurring={
 /* ---------- weekly (owner) ---------- */
 function weekData(){const since=new Date(Date.now()-7*864e5).toISOString();const people=[];
   for(const id of teamIds()){if(mem(id).admin||id===S.meId)continue;
-    const mt=S.tasks.filter(t=>t.assignee===id);
+    const mt=S.tasks.filter(t=>isAsg(t,id));
     const open=mt.filter(t=>statusOf(t)!=="done").sort(sortTasks).map(t=>({ref:tid(t),title:t.title,priority:PRIO_L[t.priority],due:t.due,status:STATUS_L[statusOf(t)],progress:Math.round(progressOf(t)*100)+"%",risk:(riskOf(t)||{}).why||null,estimateH:t.estimate||null,loggedH:loggedOf(t),openChecklist:checklistOf(t).filter(c=>!c.done).map(c=>c.t).slice(0,6)}));
     const doneWeek=mt.filter(t=>{const i=statusInfo(t);return i&&i.s==="done"&&i.at>=since}).map(t=>t.title);
     const notes=itemsOf("notes").filter(o=>o.uid===id&&o.v.at>=since).map(o=>({task:(taskById(o.v.task)||{}).title,text:String(o.v.text).slice(0,300)}));
@@ -959,7 +971,7 @@ function openTask(id){closePop();S.drawerTask=id;const ov=$("#drawer");
     checksT:h("div",{class:"p-sec-t"}),checks:h("div",{}),files:h("div",{}),feed:h("div",{class:"feed"})};
   const ci=h("input",{type:"text",id:"chk-new",placeholder:"Add an item and press Enter"});
   const addCheck=async()=>{const txt=ci.value.trim();const t=taskById(S.drawerTask);if(!txt||!t)return;ci.value="";
-    try{const item={id:uid("c"),t:txt};if(manages(t))await updateTask(t,{checklist:[...(t.checklist||[]),item]});else{const w=workOf(t);await saveWork(t,{extra:[...(w.extra||[]),item]})}}catch(e){toast(errMsg(e))}};
+    try{const item={id:uid("c"),t:txt};if(manages(t))await updateTask(t,{checklist:[...(t.checklist||[]),item]});else await writeItem("work",S.meId,t.id,{extra:[...(ownWork(t).extra||[]),item]})}catch(e){toast(errMsg(e))}};
   ci.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addCheck()}});
   P.checkForm=h("div",{class:"inline",style:"margin-top:6px"},ci);
   P.drop=dropZone(()=>({task:S.drawerTask}),"or drop here");
@@ -990,7 +1002,7 @@ function refreshDrawer(){const t=taskById(S.drawerTask);if(!t){closeDrawer();ret
   P.props.replaceChildren(
     propRow("Status",[stIco(st),h("span",{},STATUS_L[st])],work?a=>statusMenu(a,t):null),
     propRow("Priority",[prioIco(t.priority),h("span",{},PRIO_L[t.priority]||"None")],mg?a=>prioMenu(a,t):null),
-    propRow("Assignee",[avatar(t.assignee),h("span",{text:nameOf(t.assignee)})],mg?a=>assigneeMenu(a,t):null),
+    propRow(asg(t).length>1?"Assignees":"Assignee",[avatars(t),h("span",{text:namesOf(t)})],mg?a=>assigneeMenu(a,t):null),
     propRow("Goal",[ico("target","muted"),h("span",{text:g?g.title:"None"})],mg?a=>goalMenu(a,t):null));
   P.plan.replaceChildren(dateProp("Start",t,"start"),dateProp("Due",t,"due"),
     propRow("Progress",[ring(Math.round(progressOf(t)*100)),h("span",{},Math.round(progressOf(t)*100)+"%")],null),
@@ -1000,21 +1012,21 @@ function refreshDrawer(){const t=taskById(S.drawerTask);if(!t){closeDrawer();ret
   est.addEventListener("change",()=>updateTask(t,{estimate:est.value?parseFloat(est.value):null},"Estimate updated"));
   const hi=h("input",{type:"number",id:"hrs",min:"0.25",step:"0.25",placeholder:"Hours",style:"width:70px"});const hn=h("input",{type:"text",id:"hrs-note",placeholder:"Note"});
   const logH=async()=>{const n=parseFloat(String(hi.value).replace(",","."));if(!(n>0)){toast("Enter the hours, e.g. 1.5");return}
-    try{const w=workOf(t);await saveWork(t,{log:[...(w.log||[]),{id:uid("h"),h:n,note:hn.value.trim(),at:now(),by:S.meId}]});toast("Hours logged")}catch(e){toast(errMsg(e))}};
+    try{await writeItem("work",S.meId,t.id,{log:[...(ownWork(t).log||[]),{id:uid("h"),h:n,note:hn.value.trim(),at:now(),by:S.meId}]});toast("Hours logged")}catch(e){toast(errMsg(e))}};
   P.hours.replaceChildren(h("div",{class:"prop"},h("span",{class:"prop-k"},"Estimate"),mg?h("div",{class:"inline"},est,h("span",{class:"muted"},"hours")):h("span",{class:"prop-v"},t.estimate?fmtH(+t.estimate):"—")),
     h("div",{class:"prop"},h("span",{class:"prop-k"},"Logged"),h("span",{class:"prop-v"},fmtH(loggedOf(t)))),
     work?h("div",{class:"inline",style:"margin-top:4px"},hi,hn,h("button",{class:"btn sm",onclick:logH},"Log")):null);
   P.acts.replaceChildren(...[mg&&h("button",{class:"btn",onclick:()=>taskForm(t)},ico("edit"),"Edit title and details"),
-    !mg&&t.assignee===S.meId&&st!=="done"&&h("button",{class:"btn",onclick:()=>requestForm("extend",t.id)},ico("clock"),"Ask for more time"),
+    !mg&&isAsg(t,S.meId)&&st!=="done"&&h("button",{class:"btn",onclick:()=>requestForm("extend",t.id)},ico("clock"),"Ask for more time"),
     mg&&h("button",{class:"btn danger",onclick:()=>confirmModal("Delete "+tid(t)+"?","“"+t.title+"” will be deleted for everyone.","Delete task",async()=>{await S.db.doc("tasks/"+t.id).delete();closeDrawer();toast("Task deleted")})},ico("trash"),"Delete"),
     t.tpl&&h("p",{class:"hint"},"Created from a recurring template.")].filter(Boolean));
   const cl=checklistOf(t);
   P.checksT.replaceChildren(ico("check"),h("span",{},"Subtasks"),cl.length?h("span",{class:"n"},cl.filter(c=>c.done).length+"/"+cl.length):null);
   P.checks.replaceChildren(...(cl.length?cl.map(c=>{const cb=h("input",{type:"checkbox",id:"c-"+c.id,disabled:!work});cb.checked=c.done;
-      cb.addEventListener("change",async()=>{const w=workOf(t);try{await saveWork(t,{done:{...(w.done||{}),[c.id]:cb.checked}})}catch(e){toast(errMsg(e));cb.checked=!cb.checked}});
-      const canDel=c.base?mg:work;
+      cb.addEventListener("change",async()=>{try{await writeItem("work",S.meId,t.id,{done:{[c.id]:{v:cb.checked,at:now()}}})}catch(e){toast(errMsg(e));cb.checked=!cb.checked}});
+      const canDel=c.base?mg:(c.owner===S.meId||mg);
       return h("div",{class:"check"+(c.done?" done":"")},cb,h("label",{for:"c-"+c.id,text:c.t}),
-        canDel?h("button",{class:"linkbtn",onclick:async()=>{try{if(c.base)await updateTask(t,{checklist:(t.checklist||[]).filter(x=>x.id!==c.id)});else{const w=workOf(t);await saveWork(t,{extra:(w.extra||[]).filter(x=>x.id!==c.id)})}}catch(e){toast(errMsg(e))}}},"Remove"):null)})
+        canDel?h("button",{class:"linkbtn",onclick:async()=>{try{if(c.base)await updateTask(t,{checklist:(t.checklist||[]).filter(x=>x.id!==c.id)});else await writeItem("work",c.owner,t.id,{extra:(ownWork(t,c.owner).extra||[]).filter(x=>x.id!==c.id)})}catch(e){toast(errMsg(e))}}},"Remove"):null)})
     :[h("p",{class:"hint"},"Break the work into steps: progress is computed from the ticked items.")]));
   P.checkForm.hidden=!work;
   const fs=filesFor(f=>f.task===t.id);P.files.replaceChildren(...(fs.length?fs.map(o=>fileRow(o,false)):[]));P.drop.hidden=!work;
@@ -1072,20 +1084,22 @@ function closeModal(){$("#modal").hidden=true;$("#modal").replaceChildren()}
 $("#modal").addEventListener("mousedown",e=>{if(e.target.id==="modal")closeModal()});
 function confirmModal(title,text,label,fn){openModal(title,h("p",{class:"hint",style:"font-size:13.5px",text}),async()=>{await fn()},label);const b=$("#modal button[type=submit]");if(b){b.classList.remove("primary");b.classList.add("danger","armed")}}
 function linesToChecklist(text,existing){const ex=existing||[];return text.split("\n").map(s=>s.trim()).filter(Boolean).map(t=>{const m=ex.find(c=>c.t===t);return m?{id:m.id,t}:{id:uid("c"),t}})}
+function pickList(id,selected){const box=h("div",{class:"picks",role:"group"});const cbs=peopleOpts().map(([v,l])=>{const[c,lab]=chk(id+"-"+v,l,selected.includes(v));c.value=v;box.append(lab);return c});
+  if(!cbs.length)box.append(h("span",{class:"hint"},"No people yet"));box.value=()=>cbs.filter(c=>c.checked).map(c=>c.value);return box}
 function taskForm(t,goalId){t=t||{};
   const title=h("input",{type:"text",id:"tf-title",class:"big",required:true,value:t.title||"",maxlength:"200",placeholder:"Task title","aria-label":"Title"});
   const desc=h("textarea",{id:"tf-desc",class:"plain",placeholder:"Description and expected result…","aria-label":"Description"});desc.value=t.desc||"";
-  const as=sel("tf-as",[["","Unassigned"],...peopleOpts()],t.assignee||"");
+  const as=pickList("tf-as",asg(t));
   const pr=sel("tf-prio",PRIOS,t.priority||"medium");
   const st=h("input",{type:"date",id:"tf-start",value:t.start||todayStr()});
   const due=h("input",{type:"date",id:"tf-due",value:t.due||""});
   const est=h("input",{type:"number",id:"tf-est",min:"0",step:"0.5",value:t.estimate||""});
   const go_=sel("tf-goal",[["","No goal"],...S.goals.map(g=>[g.id,g.title])],t.goal||goalId||"");
   const cl=h("textarea",{id:"tf-check",placeholder:"One item per line"});cl.value=(t.checklist||[]).map(c=>c.t).join("\n");
-  openModal(t.id?"Edit "+tid(t):"New task",[title,desc,h("div",{class:"form"},h("label",{},"Assigned to",as),h("label",{},"Priority",pr),h("label",{},"Goal",go_),
+  openModal(t.id?"Edit "+tid(t):"New task",[title,desc,h("div",{class:"form"},h("label",{class:"full"},"Assigned to (one or more)",as),h("label",{},"Priority",pr),h("label",{},"Goal",go_),
     h("label",{},"Start",st),h("label",{},"Due",due),h("label",{},"Estimated hours",est),h("label",{class:"full"},"Subtasks",cl)),
     h("p",{class:"hint"},isCoord()?"You can assign tasks to people in your group. ⌘↩ to save.":"⌘↩ to save. Can't find someone? Add them in People.")],async()=>{
-      const body={title:title.value.trim(),desc:desc.value.trim(),assignee:as.value||null,priority:pr.value,start:st.value||todayStr(),due:due.value||null,
+      const body={title:title.value.trim(),desc:desc.value.trim(),...asgPatch(as.value()),priority:pr.value,start:st.value||todayStr(),due:due.value||null,
         estimate:est.value?parseFloat(est.value):null,goal:go_.value||null,checklist:linesToChecklist(cl.value,t.checklist)};
       if(!body.title){toast("Write a title.");return false}
       if(body.due&&body.due<body.start){toast("The due date is before the start.");return false}
@@ -1105,7 +1119,7 @@ function goalForm(g){g=g||{};
 function templateForm(tp){tp=tp||{};
   const title=h("input",{type:"text",id:"rf-title",class:"big",required:true,value:tp.title||"",maxlength:"200",placeholder:"E.g. Data quality check","aria-label":"Title"});
   const desc=h("textarea",{id:"rf-desc",class:"plain",placeholder:"Description…","aria-label":"Description"});desc.value=tp.desc||"";
-  const as=sel("rf-as",[["","Unassigned"],...peopleOpts()],tp.assignee||"");
+  const as=pickList("rf-as",tp.assignees||(tp.assignee?[tp.assignee]:[]));
   const pr=sel("rf-prio",PRIOS,tp.priority||"medium");
   const fq=sel("rf-freq",FREQS,tp.freq||"weekly");
   const nx=h("input",{type:"date",id:"rf-next",value:tp.next||todayStr()});
@@ -1115,8 +1129,8 @@ function templateForm(tp){tp=tp||{};
   const cl=h("textarea",{id:"rf-check",placeholder:"One item per line"});cl.value=(tp.checklist||[]).map(c=>c.t).join("\n");
   const[act,actL]=chk("rf-active","Active",tp.id?tp.active:true);
   openModal(tp.id?"Edit template":"New recurring task",[title,desc,h("div",{class:"form"},h("label",{},"Frequency",fq),h("label",{},"Next creation",nx),h("label",{},"Days to complete",dd),
-    h("label",{},"Assigned to",as),h("label",{},"Priority",pr),h("label",{},"Estimated hours",est),h("label",{class:"full"},"Goal",go_),h("label",{class:"full"},"Subtasks",cl),actL)],async()=>{
-      const body={title:title.value.trim(),desc:desc.value.trim(),assignee:as.value||null,priority:pr.value,freq:fq.value,next:nx.value||todayStr(),dueDays:Math.max(0,parseInt(dd.value||"0",10)),
+    h("label",{class:"full"},"Assigned to (one or more)",as),h("label",{},"Priority",pr),h("label",{},"Estimated hours",est),h("label",{class:"full"},"Goal",go_),h("label",{class:"full"},"Subtasks",cl),actL)],async()=>{
+      const body={title:title.value.trim(),desc:desc.value.trim(),...asgPatch(as.value()),priority:pr.value,freq:fq.value,next:nx.value||todayStr(),dueDays:Math.max(0,parseInt(dd.value||"0",10)),
         estimate:est.value?parseFloat(est.value):null,goal:go_.value||null,checklist:linesToChecklist(cl.value,tp.checklist),active:act.checked};
       if(!body.title){toast("Write a title.");return false}
       if(tp.id){const{id,...rest}=tp;await S.db.doc("templates/"+id).set({...rest,...body,updatedAt:now()})}else await S.db.collection("templates").add({...body,createdAt:now(),createdBy:S.meId});
@@ -1142,7 +1156,7 @@ function prefsForm(){const pr=S.prefs[S.meId]||{};const days=pr.remind||[1,3];
     h("p",{class:"hint full"},"Reminders appear in Overview based on these choices. Emails are sent by the lead's scheduled task, once sending is enabled.")),async()=>{
       await savePrefs(S.meId,{email:em.value.trim(),remind:REMIND_OPTS.map(o=>o[0]).filter((d,i)=>boxes[i][0].checked),weekly:wk.checked,updatedAt:now()});toast("Preferences saved")})}
 function requestForm(type,taskId){
-  if(type==="extend"){const mine=S.tasks.filter(t=>t.assignee===S.meId&&statusOf(t)!=="done").sort(sortTasks);
+  if(type==="extend"){const mine=S.tasks.filter(t=>isAsg(t,S.meId)&&statusOf(t)!=="done").sort(sortTasks);
     if(!mine.length){toast("You have no open tasks to ask an extension for.");return}
     const ts=sel("rq-task",mine.map(t=>[t.id,tid(t)+" "+t.title+(t.due?" (scade "+fmtDate(t.due,true)+")":"")]),taskId||mine[0].id);
     const nd=h("input",{type:"date",id:"rq-due",required:true});const rs=h("textarea",{id:"rq-reason",placeholder:"What you need and why"});
@@ -1160,7 +1174,7 @@ function requestForm(type,taskId){
 async function exportCsv(){
   const q=v=>'"'+String(v??"").replace(/"/g,'""')+'"';const num=n=>String(Math.round((+n||0)*10)/10);
   const rows=[["ID","Title","Description","Assigned to","Priority","Start","Due","Status","Progress %","Flag","Estimated hours","Hours logged","Goal","Created on"]].concat(scopeTasks().slice().sort(sortTasks).map(t=>{const r=riskOf(t);
-    return[tid(t),t.title,t.desc,t.assignee?nameOf(t.assignee):"",PRIO_L[t.priority]||"",startOf(t),t.due||"",STATUS_L[statusOf(t)],Math.round(progressOf(t)*100),r?(r.level==="late"?"Overdue":"At risk"):"",t.estimate?num(t.estimate):"",num(loggedOf(t)),(goalOf(t.goal)||{}).title||"",(t.createdAt||"").slice(0,10)]}));
+    return[tid(t),t.title,t.desc,asg(t).map(nameOf).join("; "),PRIO_L[t.priority]||"",startOf(t),t.due||"",STATUS_L[statusOf(t)],Math.round(progressOf(t)*100),r?(r.level==="late"?"Overdue":"At risk"):"",t.estimate?num(t.estimate):"",num(loggedOf(t)),(goalOf(t.goal)||{}).title||"",(t.createdAt||"").slice(0,10)]}));
   saveBlob(new Blob(["\ufeff"+rows.map(r=>r.map(q).join(",")).join("\r\n")],{type:"text/csv;charset=utf-8"}),"task-fht-"+todayStr()+".csv")}
 
 /* ---------- login & boot ---------- */
