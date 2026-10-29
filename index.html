@@ -651,7 +651,7 @@ function dropZone(link,label){
 
 /* ---------- popover menu ---------- */
 let popEl=null;
-function closePop(){if(popEl){popEl.remove();popEl=null;document.removeEventListener("mousedown",popOutside,true)}}
+function closePop(){if(popEl){popEl.remove();popEl=null;document.removeEventListener("mousedown",popOutside,true);if(S.ready)schedule()}}
 function popOutside(e){if(popEl&&!popEl.contains(e.target))closePop()}
 function popMenu(anchor,items,current,onPick,search,multi){closePop();const cur=multi?[...current]:null;
   const box=h("div",{class:"pop-items"});const pop=h("div",{class:"pop",role:"menu"});
