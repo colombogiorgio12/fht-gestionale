@@ -139,9 +139,8 @@ do $$ begin
 end $$;
 
 -- ---------- files ----------
--- Private bucket, 50 MB per file. Everyone in the team reads; each person uploads into
--- their own folder; nothing can be overwritten (no update policy); a person can delete
--- their own upload within 24 hours, the super admin can delete anything.
+-- Private bucket kept only for files uploaded before 30 Oct 2026: readable by the team,
+-- a person can delete their own upload within 24 hours, the super admin anything.
 insert into storage.buckets (id, name, public, file_size_limit)
 values ('documenti', 'documenti', false, 52428800)
 on conflict (id) do nothing;
@@ -149,9 +148,8 @@ on conflict (id) do nothing;
 drop policy if exists fht_files_read on storage.objects;
 create policy fht_files_read on storage.objects for select to authenticated
   using (bucket_id = 'documenti' and public.is_member());
+-- No upload policy: documents live on OneDrive and the tracker stores only links.
 drop policy if exists fht_files_upload on storage.objects;
-create policy fht_files_upload on storage.objects for insert to authenticated
-  with check (bucket_id = 'documenti' and public.is_member() and (storage.foldername(name))[1] = auth.uid()::text);
 drop policy if exists fht_files_delete on storage.objects;
 create policy fht_files_delete on storage.objects for delete to authenticated
   using (bucket_id = 'documenti' and (public.is_admin()
