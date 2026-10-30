@@ -669,7 +669,7 @@ function statusMenu(a,t){popMenu(a,STATUSES.map(([k,l])=>({value:k,label:l,icon:
 function prioMenu(a,t){popMenu(a,PRIOS.map(([k,l])=>({value:k,label:l,el:()=>prioIco(k)})),t.priority,v=>updateTask(t,{priority:v},"Priority: "+PRIO_L[v]))}
 function assigneeMenu(a,t){const before=asg(t);popMenu(a,peopleOpts().map(([v,l])=>({value:v,label:l,el:()=>avatar(v)})),before,ids=>{const tt=taskById(t.id)||t;S.asgSession={task:t.id,before,cur:ids};updateTask(tt,asgPatch(ids),ids.length?"Assigned to "+ids.map(nameOf).join(", "):"Unassigned")},"Assign to…",true)}
 // Asks whether (and whom) to notify on Slack about people newly assigned to a task.
-function askNotify(taskId,ids){ids=ids.filter(x=>x&&x!==S.meId);if(!ids.length||!isManager())return;
+function askNotify(taskId,ids){ids=ids.filter(Boolean);if(!ids.length||!isManager())return;
   const t=taskById(taskId);const label=t?tid(t)+" “"+t.title+"”":"this task";
   const opts=[["people","Only the assigned people","A message in #mind that mentions only "+ids.map(nameOf).join(", ")+"."],["team","The whole team","A message in #mind with @channel."],["none","Don't notify","Nothing is sent to Slack."]];
   const radios=opts.map(([v,l,d],i)=>{const r=h("input",{type:"radio",name:"nf-aud",id:"nf-"+v,value:v});if(i===0)r.checked=true;
