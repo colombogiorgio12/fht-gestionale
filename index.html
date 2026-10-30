@@ -695,7 +695,7 @@ function renderSide(){
       h("button",{class:"icon-btn",title:"Search and commands (⌘K)","aria-label":"Search",onclick:()=>{toggleNav(false);openCmdk()}},ico("search")),
       h("button",{class:"icon-btn",title:isManager()?"New task (C)":"Propose a task (C)","aria-label":"New",onclick:()=>{toggleNav(false);isManager()?taskForm():requestForm("new")}},ico("edit"))),
     ...items,
-    h("div",{class:"side-foot"},h("button",{class:"nav-it",onclick:()=>{toggleNav(false);prefsForm()}},ico("bell"),h("span",{class:"nav-l"},"Reminders and email")),
+    h("div",{class:"side-foot"},h("button",{class:"nav-it",onclick:()=>{toggleNav(false);prefsForm()}},ico("bell"),h("span",{class:"nav-l"},"Profile and reminders")),
       (()=>{const th=THEMES.find(x=>x[0]===theme)||THEMES[0];return h("button",{class:"nav-it",title:"Change theme",onclick:cycleTheme},ico(th[2]),h("span",{class:"nav-l"},th[1]))})(),
       h("button",{class:"nav-it",onclick:()=>sb.auth.signOut().then(()=>location.reload())},ico("x"),h("span",{class:"nav-l"},"Sign out")),
       h("div",{class:"me"},avatar(S.meId,"lg"),h("div",{class:"grow"},h("b",{text:p.name||"You"}),h("small",{},roleLabel())))));
@@ -1151,9 +1151,12 @@ function prefsForm(){const pr=S.prefs[S.meId]||{};const days=pr.remind||[1,3];
   const em=h("input",{type:"email",id:"pf-email",value:pr.email||(S.people[S.meId]||{}).email||"",placeholder:"name@example.com"});
   const boxes=REMIND_OPTS.map(([d,l])=>chk("pf-d"+d,l,days.includes(d)));
   const[wk,wkL]=chk("pf-weekly","Summary of my tasks every Monday",pr.weekly!==false);
-  openModal("Reminders and email",h("div",{class:"form"},h("label",{class:"full"},"Your email",em),
+  const nm=h("input",{type:"text",id:"pf-name",value:(S.people[S.meId]||{}).name||"",placeholder:"Full name",autocomplete:"name"});
+  openModal("Your profile and reminders",h("div",{class:"form"},h("label",{class:"full"},"Your name",nm),h("label",{class:"full"},"Your email",em),
     h("div",{class:"full",style:"display:flex;flex-direction:column;gap:6px"},h("span",{class:"hint"},"Remind me before deadlines"),...boxes.map(b=>b[1]),wkL),
     h("p",{class:"hint full"},"Reminders appear in Overview based on these choices. Emails are sent by the lead's scheduled task, once sending is enabled.")),async()=>{
+      const n=nm.value.trim();if(!n){toast("Write your name.");return false}
+      if(n!==((S.people[S.meId]||{}).name||"")){const{error}=await sb.from("profiles").update({name:n}).eq("id",S.meId);if(error)throw dbErr(error);await loadProfiles()}
       await savePrefs(S.meId,{email:em.value.trim(),remind:REMIND_OPTS.map(o=>o[0]).filter((d,i)=>boxes[i][0].checked),weekly:wk.checked,updatedAt:now()});toast("Preferences saved")})}
 function requestForm(type,taskId){
   if(type==="extend"){const mine=S.tasks.filter(t=>isAsg(t,S.meId)&&statusOf(t)!=="done").sort(sortTasks);
