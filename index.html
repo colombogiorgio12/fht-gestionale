@@ -378,7 +378,7 @@ const DL_EXT=new Set("gif png jpg jpeg webp mp4 webm mov txt json md docx pptx e
 const MAX_DB=8*1024*1024, CHUNK=200000, DW=24;
 
 const S={db:null,user:null,assets:null,downloads:null,sample:null,meId:null,isOwner:false,canEdit:false,ready:false,
-  tasks:[],goals:[],templates:[],members:{},prefs:{},status:{},notes:{},files:{},work:{},req:[],digests:{},profiles:{},known:{},people:{},
+  tasks:[],goals:[],templates:[],members:{},prefs:{},status:{},notes:{},files:{},work:{},req:[],settings:{},digests:{},profiles:{},known:{},people:{},
   loaded:new Set(),ranTpl:false,view:"my",drawerTask:null,f:{mine:true},doneOpen:{},
   lf:{my:{q:"",who:"",prio:"",goal:"",flag:false},tasks:{q:"",who:"",prio:"",goal:"",flag:false}},
   mode:{my:"list",tasks:"list"},cal:{month:null,gStart:null}};
@@ -488,7 +488,7 @@ const DB={
     async add(d){const id=uid("t");await DB.doc(col+"/"+id).set(d);return{id}},
     onSnapshot(next,err){SUBS[col]={next,err};loadCol(col);return()=>{delete SUBS[col]}}}}};
 function colorFor(id){let x=0;for(const c of String(id))x=(x*31+c.charCodeAt(0))>>>0;return"hsl("+(x%360)+" 42% 46%)"}
-async function loadProfiles(){const{data,error}=await sb.from("profiles").select("id,email,name,title,grp,role,active,must_change");if(error)return;
+async function loadProfiles(){const{data,error}=await sb.from("profiles").select("id,email,name,title,grp,role,active,must_change,slack_id");if(error)return;
   S.people={};S.members={};S.profiles={};
   for(const p of data){S.people[p.id]=p;S.profiles[p.id]={name:p.name||p.email.split("@")[0],avatarUrl:"",color:colorFor(p.id),email:p.email};
     if(p.active)S.members[p.id]={admin:p.role==="admin",coord:p.role==="coord",role:p.title,group:p.grp}}
@@ -883,7 +883,7 @@ V.team={
     const rows=ids.map(id=>{const md=mem(id);const pp=S.people[id]||{};const o=S.tasks.filter(t=>isAsg(t,id)&&statusOf(t)!=="done");const lt=o.filter(t=>riskOf(t)?.level==="late").length,rk=o.filter(t=>riskOf(t)?.level==="risk").length;
       const roleTxt=md.admin?"Super admin":md.coord?"Coordinator":(md.role||"Collaborator");
       const sub=[roleTxt,md.coord&&md.role?md.role:null,md.group?"Group "+md.group:null,(S.isOwner||isCoord())?emailOf(id):null,S.isOwner&&pp.must_change?"hasn't signed in yet":null].filter(Boolean).join(" · ");
-      const menu=[{value:"tasks",label:"See their tasks",icon:"list"},S.isOwner&&!md.admin&&{value:"edit",label:"Role, group and permissions",icon:"edit"},
+      const menu=[{value:"tasks",label:"See their tasks",icon:"list"},S.isOwner&&{value:"edit",label:md.admin?"Name and Slack ID":"Role, group and permissions",icon:"edit"},
         S.isOwner&&id!==S.meId&&{value:"reset",label:"New temporary password",icon:"repeat"},S.isOwner&&id!==S.meId&&{value:"off",label:"Deactivate account",icon:"trash"}].filter(Boolean);
       return h("div",{class:"lrow"},avatar(id,"lg"),h("div",{class:"main-t"},h("b",{text:nameOf(id)+(id===S.meId?" (tu)":"")}),h("small",{text:sub})),
         h("span",{class:"muted tnum"},o.length+" open"),lt?h("span",{class:"pill r-late"},lt+" overdue"):null,rk?h("span",{class:"pill r-risk"},rk+" at risk"):null,
@@ -892,6 +892,13 @@ V.team={
           else if(v==="reset")confirmModal("New password for "+nameOf(id)+"?","The current password stops working. You'll get a temporary one to send them.","Reset",async()=>{const r=await adminCall({action:"reset",id});setTimeout(()=>showSecret("New temporary password",pp.email,r.password),0)});
           else if(v==="off")confirmModal("Deactivate the account of "+nameOf(id)+"?","They won't be able to sign in. Their tasks, comments and files stay.","Deactivate",async()=>{await adminCall({action:"deactivate",id});await loadProfiles();toast("Account deactivated")})})},ico("more")))});
     const out=[sec("Team",ids.length,h("div",{},rows),{icon:"users"})];
+    if(S.isOwner){const cfg=(S.settings.slack)||{};
+      const tg=(key,label)=>{const[c,lab]=chk("sl-"+key,label,!!cfg[key]);c.addEventListener("change",async()=>{try{await S.db.doc("settings/slack").set({...((S.settings.slack)||{}),[key]:c.checked});toast("Slack settings saved")}catch(e){toast(errMsg(e));c.checked=!c.checked}});return lab};
+      const missing=ids.filter(i=>!(S.people[i]||{}).slack_id).length;
+      out.push(sec("Slack notifications",null,h("div",{style:"padding:12px 14px;display:flex;flex-direction:column;gap:8px"},
+        h("p",{class:"hint"},"Public requests, replies, assignments and the morning summary go to #mind. Private requests and your own summary go only to your Slack chat."),
+        tg("channelOnRequests","Mention @channel for new public requests (otherwise only you)"),tg("channelOnDaily","Mention @channel in the morning summary"),
+        missing?h("p",{class:"hint"},missing+(missing===1?" person has":" people have")+" no Slack member ID yet: they'll appear by name instead of being mentioned. Set it from Role, group and permissions."):null),{icon:"bell"}))}
     if(S.isOwner){const off=Object.values(S.people).filter(p=>!p.active&&p.id!==S.meId);
       if(off.length)out.push(sec("Deactivated accounts",off.length,h("div",{},off.map(p=>h("div",{class:"lrow"},avatar(p.id),h("div",{class:"main-t"},h("b",{text:nameOf(p.id)}),h("small",{text:p.email})),
         h("button",{class:"btn sm",onclick:async e=>{e.currentTarget.disabled=true;try{await adminCall({action:"reactivate",id:p.id});await loadProfiles();toast("Account reactivated")}catch(err){toast(errMsg(err))}}},"Reactivate"))))))}
@@ -1144,11 +1151,14 @@ function memberForm(id){const p=S.people[id]||{};
   const grp=h("input",{type:"text",id:"mf-group",value:p.grp||"",placeholder:"e.g. Data collection"});
   const ro=sel("mf-perm",[["collab","Collaborator"],["coord","Group coordinator"]],p.role==="coord"?"coord":"collab");
   const em=h("input",{type:"email",id:"mf-email",value:(S.prefs[id]||{}).email||"",placeholder:p.email||""});
-  openModal(nameOf(id),h("div",{class:"form"},h("label",{},"Name",nm),h("label",{},"Role",role),h("label",{},"Group",grp),h("label",{},"Permissions",ro),
+  const sl=h("input",{type:"text",id:"mf-slack",value:p.slack_id||"",placeholder:"e.g. U04ABCDEF12",autocomplete:"off"});
+  openModal(nameOf(id),h("div",{class:"form"},h("label",{},"Name",nm),h("label",{},"Role",role),h("label",{},"Group",grp),p.role==="admin"?null:h("label",{},"Permissions",ro),
     h("label",{class:"two"},"Email for reminders, if different from the sign-in one",em),
+    h("label",{class:"full"},"Slack member ID (for @mentions in #mind)",sl),h("p",{class:"hint full"},"In Slack: open the person's profile → ⋮ → Copy member ID. Only you can set it."),
     h("p",{class:"hint full"},"The coordinator creates and manages tasks for the people in their group and approves their requests.")),async()=>{
     if(ro.value==="coord"&&!grp.value.trim()){toast("A coordinator needs a group.");return false}
-    const{error}=await sb.from("profiles").update({name:nm.value.trim(),title:role.value.trim(),grp:grp.value.trim(),role:ro.value}).eq("id",id);if(error)throw dbErr(error);
+    const sid=sl.value.trim().toUpperCase();if(sid&&!/^[UW][A-Z0-9]{6,}$/.test(sid)){toast("That doesn't look like a Slack member ID (it starts with U).");return false}
+    const{error}=await sb.from("profiles").update({name:nm.value.trim(),title:role.value.trim(),grp:grp.value.trim(),slack_id:sid||null,...(p.role==="admin"?{}:{role:ro.value})}).eq("id",id);if(error)throw dbErr(error);
     if(em.value.trim()!==((S.prefs[id]||{}).email||""))await savePrefs(id,{email:em.value.trim()});await loadProfiles();toast("Profile updated")})}
 function prefsForm(){const pr=S.prefs[S.meId]||{};const days=pr.remind||[1,3];
   const em=h("input",{type:"email",id:"pf-email",value:pr.email||(S.people[S.meId]||{}).email||"",placeholder:"name@example.com"});
@@ -1218,7 +1228,7 @@ async function start(user){if(started)return;started=true;S.meId=user.id;S.db=DB
   const listCol=(c,key)=>DB.collection(c).onSnapshot(s=>{S[key]=s.docs.map(d=>({...d.data(),id:d.id}));S.loaded.add(key);schedule()},onErr);
   const mapCol=c=>DB.collection(c).onSnapshot(s=>{const m={};s.docs.forEach(d=>m[d.id]=d.data());S[c]=m;S.loaded.add(c);schedule()},onErr);
   listCol("tasks","tasks");listCol("goals","goals");listCol("templates","templates");
-  for(const c of["prefs","status","notes","files","work"])mapCol(c);listCol("req","req");
+  for(const c of["prefs","status","notes","files","work","settings"])mapCol(c);listCol("req","req");
   if(S.isOwner)mapCol("digests");
   sb.channel("fht-live").on("postgres_changes",{event:"*",schema:"public",table:"docs"},p=>{const c=(p.new&&p.new.col)||(p.old&&p.old.col);if(c&&SUBS[c])bump(c)})
     .on("postgres_changes",{event:"*",schema:"public",table:"profiles"},()=>loadProfiles()).subscribe();
