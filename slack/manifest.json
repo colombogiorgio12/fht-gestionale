@@ -1,0 +1,23 @@
+{
+  "display_information": {
+    "name": "V2P3 Tracker",
+    "description": "Reminders from the V2P3 team tracker, posted only in #mind",
+    "background_color": "#1b1c1f"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "V2P3 Tracker",
+      "always_online": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": ["incoming-webhook"]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}
