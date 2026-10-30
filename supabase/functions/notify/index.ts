@@ -80,19 +80,28 @@ async function onRequest(op: string, id: string, old: Doc | null) {
   return "skip";
 }
 
-// Assignments made by the person to themselves are not announced; the admin can switch announcements off.
-async function onTask(op: string, id: string, old: Doc | null, updatedAt: string, actor: string) {
-  const { data: cur } = await db.from("docs").select("data").eq("col", "tasks").eq("id", id).maybeSingle();
+// Assignment notices are sent only when a team lead asks for one in the tracker
+// (a "notify" document), to the assigned people or to the whole #mind channel.
+async function onNotify(op: string, id: string) {
+  if (op !== "INSERT") return "skip";
+  const { data: cur } = await db.from("docs").select("data,updated_by").eq("col", "notify").eq("id", id).maybeSingle();
   if (!cur) return "gone";
-  const t = cur.data as Doc;
-  const before = op === "UPDATE" && old ? asg(old) : [];
-  const added = asg(t).filter((x) => !before.includes(x) && x !== actor);
-  if (!added.length) return "skip";
-  if ((await settings()).quietAssignments) return "quiet";
-  if (!(await once(`task:${id}:asg:${added.sort().join(",")}:${updatedAt}`))) return "dup";
+  const n = cur.data as Doc;
+  if (n.kind !== "assign") return "skip";
   const P = await people();
-  const who = added.map((x) => tag(P, x)).join(" ");
-  return post(MIND, `${who} you've been assigned *${tid(t)}${esc(t.title)}* (due ${fmt(t.due)}). ${open}`);
+  const by = P[cur.updated_by as string];
+  if (!by || !by.active || !["admin", "coord"].includes(by.role)) return "denied";
+  if (!(await once(`notify:${id}`))) return "dup";
+  const { data: td } = await db.from("docs").select("data").eq("col", "tasks").eq("id", n.task).maybeSingle();
+  if (!td) return "gone";
+  const t = td.data as Doc;
+  const ids = ((n.people || []) as string[]).filter((x) => P[x]);
+  if (!ids.length) return "skip";
+  const who = ids.map((x) => tag(P, x)).join(" ");
+  const text = n.audience === "team"
+    ? `<!channel> *${tid(t)}${esc(t.title)}* has been assigned to ${who} (due ${fmt(t.due)}). ${open}`
+    : `${who} you've been assigned *${tid(t)}${esc(t.title)}* (due ${fmt(t.due)}). ${open}`;
+  return post(MIND, text);
 }
 
 // ----- daily summary -----
@@ -177,7 +186,7 @@ Deno.serve(async (req) => {
     if (!rec || typeof rec.id !== "string") return reply({ result: "ignored" });
     const old = body.old_record?.data ?? null;
     if (rec.col === "req") return reply({ result: await onRequest(body.type, rec.id, old) });
-    if (rec.col === "tasks") return reply({ result: await onTask(body.type, rec.id, old, String(rec.updated_at || ""), String(rec.updated_by || "")) });
+    if (rec.col === "notify") return reply({ result: await onNotify(body.type, rec.id) });
     return reply({ result: "ignored" });
   } catch (e) {
     return reply({ error: String((e as Error)?.message || e) }, 500);

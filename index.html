@@ -646,7 +646,8 @@ function dropZone(link){
 
 /* ---------- popover menu ---------- */
 let popEl=null;
-function closePop(){if(popEl){popEl.remove();popEl=null;document.removeEventListener("mousedown",popOutside,true);if(S.ready)schedule()}}
+function closePop(){if(popEl){popEl.remove();popEl=null;document.removeEventListener("mousedown",popOutside,true);if(S.ready)schedule();
+  const ss=S.asgSession;S.asgSession=null;if(ss){const added=ss.cur.filter(x=>!ss.before.includes(x));if(added.length)setTimeout(()=>askNotify(ss.task,added),0)}}}
 function popOutside(e){if(popEl&&!popEl.contains(e.target))closePop()}
 function popMenu(anchor,items,current,onPick,search,multi){closePop();const cur=multi?[...current]:null;
   const box=h("div",{class:"pop-items"});const pop=h("div",{class:"pop",role:"menu"});
@@ -666,7 +667,16 @@ function popMenu(anchor,items,current,onPick,search,multi){closePop();const cur=
     else if(e.key==="Escape"){e.stopPropagation();closePop();anchor.focus()}})}
 function statusMenu(a,t){popMenu(a,STATUSES.map(([k,l])=>({value:k,label:l,icon:k,cls:"s-"+k})),statusOf(t),v=>v!==statusOf(t)&&setStatus(t,v))}
 function prioMenu(a,t){popMenu(a,PRIOS.map(([k,l])=>({value:k,label:l,el:()=>prioIco(k)})),t.priority,v=>updateTask(t,{priority:v},"Priority: "+PRIO_L[v]))}
-function assigneeMenu(a,t){popMenu(a,peopleOpts().map(([v,l])=>({value:v,label:l,el:()=>avatar(v)})),asg(t),ids=>{const tt=taskById(t.id)||t;updateTask(tt,asgPatch(ids),ids.length?"Assigned to "+ids.map(nameOf).join(", "):"Unassigned")},"Assign to…",true)}
+function assigneeMenu(a,t){const before=asg(t);popMenu(a,peopleOpts().map(([v,l])=>({value:v,label:l,el:()=>avatar(v)})),before,ids=>{const tt=taskById(t.id)||t;S.asgSession={task:t.id,before,cur:ids};updateTask(tt,asgPatch(ids),ids.length?"Assigned to "+ids.map(nameOf).join(", "):"Unassigned")},"Assign to…",true)}
+// Asks whether (and whom) to notify on Slack about people newly assigned to a task.
+function askNotify(taskId,ids){ids=ids.filter(x=>x&&x!==S.meId);if(!ids.length||!isManager())return;
+  const t=taskById(taskId);const label=t?tid(t)+" “"+t.title+"”":"this task";
+  const opts=[["people","Only the assigned people","A message in #mind that mentions only "+ids.map(nameOf).join(", ")+"."],["team","The whole team","A message in #mind with @channel."],["none","Don't notify","Nothing is sent to Slack."]];
+  const radios=opts.map(([v,l,d],i)=>{const r=h("input",{type:"radio",name:"nf-aud",id:"nf-"+v,value:v});if(i===0)r.checked=true;
+    return h("label",{class:"chk",for:"nf-"+v,style:"align-items:flex-start;padding:6px 0"},r,h("span",{},h("b",{style:"font-weight:500;display:block",text:l}),h("span",{class:"hint",text:d})))});
+  openModal("Notify on Slack?",[h("p",{class:"hint",style:"font-size:13.5px",text:ids.map(nameOf).join(", ")+(ids.length>1?" have":" has")+" been assigned to "+label+"."}),h("div",{style:"display:flex;flex-direction:column"},radios)],async()=>{
+    const aud=(radios.map(l=>l.querySelector("input")).find(r=>r.checked)||{}).value;if(aud==="none"||!aud)return;
+    await S.db.doc("notify/"+uid("n")).set({kind:"assign",task:taskId,people:ids,audience:aud,at:now()});toast(aud==="team"?"Team notified on Slack":"Notified on Slack")},"Send")}
 function goalMenu(a,t){popMenu(a,[{value:"",label:"No goal",icon:"x"},...S.goals.map(g=>({value:g.id,label:g.title,icon:"target"}))],t.goal||"",v=>updateTask(t,{goal:v||null},"Goal updated"),"Goal…")}
 
 /* ---------- shell ---------- */
@@ -891,8 +901,8 @@ V.team={
       const tg=(key,label)=>{const[c,lab]=chk("sl-"+key,label,!!cfg[key]);c.addEventListener("change",async()=>{try{await S.db.doc("settings/slack").set({...((S.settings.slack)||{}),[key]:c.checked});toast("Slack settings saved")}catch(e){toast(errMsg(e));c.checked=!c.checked}});return lab};
       const missing=ids.filter(i=>!(S.people[i]||{}).slack_id).length;
       out.push(sec("Slack notifications",null,h("div",{style:"padding:12px 14px;display:flex;flex-direction:column;gap:8px"},
-        h("p",{class:"hint"},"Public requests, replies, assignments and the morning summary go to #mind. Private requests and your own summary go only to your Slack chat."),
-        tg("channelOnRequests","Mention @channel for new public requests (otherwise only you)"),tg("channelOnDaily","Mention @channel in the morning summary"),tg("quietAssignments","Don't announce task assignments in #mind"),
+        h("p",{class:"hint"},"Public requests, replies and the morning summary go to #mind. When you assign a task, the tracker asks whether to notify the assigned people, the whole team or nobody. Private requests and your own summary go only to your Slack chat."),
+        tg("channelOnRequests","Mention @channel for new public requests (otherwise only you)"),tg("channelOnDaily","Mention @channel in the morning summary"),
         missing?h("p",{class:"hint"},missing+(missing===1?" person has":" people have")+" no Slack member ID yet: they'll appear by name instead of being mentioned. Set it from Role, group and permissions."):null),{icon:"bell"}))}
     if(S.isOwner){const off=Object.values(S.people).filter(p=>!p.active&&p.id!==S.meId);
       if(off.length)out.push(sec("Deactivated accounts",off.length,h("div",{},off.map(p=>h("div",{class:"lrow"},avatar(p.id),h("div",{class:"main-t"},h("b",{text:nameOf(p.id)}),h("small",{text:p.email})),
@@ -1108,8 +1118,9 @@ function taskForm(t,goalId){t=t||{};
         estimate:est.value?parseFloat(est.value):null,goal:go_.value||null,checklist:linesToChecklist(cl.value,t.checklist)};
       if(!body.title){toast("Write a title.");return false}
       if(body.due&&body.due<body.start){toast("The due date is before the start.");return false}
-      if(t.id){const{id,...rest}=t;await S.db.doc("tasks/"+id).set({...rest,...body,updatedAt:now()});toast(tid(t)+" updated")}
-      else{const n=nextNum();await S.db.collection("tasks").add({...body,num:n,createdAt:now(),createdBy:S.meId});toast("FHT-"+n+" created")}
+      const added=body.assignees.filter(x=>!asg(t).includes(x));
+      if(t.id){const{id,...rest}=t;await S.db.doc("tasks/"+id).set({...rest,...body,updatedAt:now()});toast(tid(t)+" updated");if(added.length)setTimeout(()=>askNotify(id,added),0)}
+      else{const n=nextNum();const ref=await S.db.collection("tasks").add({...body,num:n,createdAt:now(),createdBy:S.meId});toast("FHT-"+n+" created");if(added.length)setTimeout(()=>askNotify(ref.id,added),400)}
     },t.id?"Save":"Create task")}
 function goalForm(g){g=g||{};
   const title=h("input",{type:"text",id:"gf-title",class:"big",required:true,value:g.title||"",maxlength:"200",placeholder:"Goal name","aria-label":"Goal"});

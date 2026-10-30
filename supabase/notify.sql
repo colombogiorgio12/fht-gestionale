@@ -23,15 +23,16 @@ language sql stable as $$
     when c in ('prefs','status','notes','files','work') then i = auth.uid()::text or public.is_manager()
     when c = 'req' then split_part(i, ':', 1) = auth.uid()::text or public.is_manager()
     when c in ('digests','settings') then public.is_admin()
+    when c = 'notify' then public.is_manager()
     else false end
 $$;
 
--- New or changed requests and tasks call the notify function.
+-- New or changed requests, and assignment notices asked for in the tracker, call the notify function.
 create extension if not exists pg_net;
 create or replace function public.notify_doc() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
-  if new.col in ('req','tasks') then
+  if new.col in ('req','notify') then
     perform net.http_post(
       url := 'https://noayuqmlmkbrzfgdppku.supabase.co/functions/v1/notify',
       body := jsonb_build_object('type', tg_op, 'record', to_jsonb(new), 'old_record', case when tg_op = 'UPDATE' then to_jsonb(old) else null end),
