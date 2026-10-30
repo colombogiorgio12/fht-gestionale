@@ -892,7 +892,7 @@ V.team={
       const missing=ids.filter(i=>!(S.people[i]||{}).slack_id).length;
       out.push(sec("Slack notifications",null,h("div",{style:"padding:12px 14px;display:flex;flex-direction:column;gap:8px"},
         h("p",{class:"hint"},"Public requests, replies, assignments and the morning summary go to #mind. Private requests and your own summary go only to your Slack chat."),
-        tg("channelOnRequests","Mention @channel for new public requests (otherwise only you)"),tg("channelOnDaily","Mention @channel in the morning summary"),
+        tg("channelOnRequests","Mention @channel for new public requests (otherwise only you)"),tg("channelOnDaily","Mention @channel in the morning summary"),tg("quietAssignments","Don't announce task assignments in #mind"),
         missing?h("p",{class:"hint"},missing+(missing===1?" person has":" people have")+" no Slack member ID yet: they'll appear by name instead of being mentioned. Set it from Role, group and permissions."):null),{icon:"bell"}))}
     if(S.isOwner){const off=Object.values(S.people).filter(p=>!p.active&&p.id!==S.meId);
       if(off.length)out.push(sec("Deactivated accounts",off.length,h("div",{},off.map(p=>h("div",{class:"lrow"},avatar(p.id),h("div",{class:"main-t"},h("b",{text:nameOf(p.id)}),h("small",{text:p.email})),

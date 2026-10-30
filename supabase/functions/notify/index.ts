@@ -80,13 +80,15 @@ async function onRequest(op: string, id: string, old: Doc | null) {
   return "skip";
 }
 
-async function onTask(op: string, id: string, old: Doc | null, updatedAt: string) {
+// Assignments made by the person to themselves are not announced; the admin can switch announcements off.
+async function onTask(op: string, id: string, old: Doc | null, updatedAt: string, actor: string) {
   const { data: cur } = await db.from("docs").select("data").eq("col", "tasks").eq("id", id).maybeSingle();
   if (!cur) return "gone";
   const t = cur.data as Doc;
   const before = op === "UPDATE" && old ? asg(old) : [];
-  const added = asg(t).filter((x) => !before.includes(x));
+  const added = asg(t).filter((x) => !before.includes(x) && x !== actor);
   if (!added.length) return "skip";
+  if ((await settings()).quietAssignments) return "quiet";
   if (!(await once(`task:${id}:asg:${added.sort().join(",")}:${updatedAt}`))) return "dup";
   const P = await people();
   const who = added.map((x) => tag(P, x)).join(" ");
@@ -175,7 +177,7 @@ Deno.serve(async (req) => {
     if (!rec || typeof rec.id !== "string") return reply({ result: "ignored" });
     const old = body.old_record?.data ?? null;
     if (rec.col === "req") return reply({ result: await onRequest(body.type, rec.id, old) });
-    if (rec.col === "tasks") return reply({ result: await onTask(body.type, rec.id, old, String(rec.updated_at || "")) });
+    if (rec.col === "tasks") return reply({ result: await onTask(body.type, rec.id, old, String(rec.updated_at || ""), String(rec.updated_by || "")) });
     return reply({ result: "ignored" });
   } catch (e) {
     return reply({ error: String((e as Error)?.message || e) }, 500);
