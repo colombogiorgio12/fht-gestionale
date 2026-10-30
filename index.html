@@ -378,7 +378,7 @@ const DL_EXT=new Set("gif png jpg jpeg webp mp4 webm mov txt json md docx pptx e
 const MAX_DB=8*1024*1024, CHUNK=200000, DW=24;
 
 const S={db:null,user:null,assets:null,downloads:null,sample:null,meId:null,isOwner:false,canEdit:false,ready:false,
-  tasks:[],goals:[],templates:[],members:{},prefs:{},status:{},notes:{},files:{},work:{},requests:{},digests:{},profiles:{},known:{},people:{},
+  tasks:[],goals:[],templates:[],members:{},prefs:{},status:{},notes:{},files:{},work:{},req:[],digests:{},profiles:{},known:{},people:{},
   loaded:new Set(),ranTpl:false,view:"my",drawerTask:null,f:{mine:true},doneOpen:{},
   lf:{my:{q:"",who:"",prio:"",goal:"",flag:false},tasks:{q:"",who:"",prio:"",goal:"",flag:false}},
   mode:{my:"list",tasks:"list"},cal:{month:null,gStart:null}};
@@ -510,7 +510,7 @@ const mem=id=>S.members[id]||{};
 const emailOf=id=>((S.prefs[id]||{}).email)||((S.people[id]||{}).email)||"";
 function teamIds(){const ids=new Set(Object.keys(S.members));if(S.meId)ids.add(S.meId);return[...ids]}
 function peopleIds(){const ids=new Set(teamIds());S.tasks.forEach(t=>asg(t).forEach(i=>ids.add(i)));S.goals.forEach(g=>g.owner&&ids.add(g.owner));
-  ["notes","files","status","work","requests"].forEach(c=>Object.keys(S[c]).forEach(i=>ids.add(i)));return[...ids]}
+  ["notes","files","status","work"].forEach(c=>Object.keys(S[c]).forEach(i=>ids.add(i)));S.req.forEach(r=>ids.add(String(r.id).split(":")[0]));return[...ids]}
 const isCoord=()=>!S.isOwner&&!!mem(S.meId).coord&&S.canEdit;
 const isManager=()=>S.isOwner||isCoord();
 const myGroup=()=>mem(S.meId).group||"";
@@ -564,7 +564,7 @@ function dueChip(t){if(!t.due)return null;const n=daysUntil(t.due);const done=st
 function itemsOf(col){const out=[];for(const[u,d]of Object.entries(S[col]))for(const[k,v]of Object.entries((d&&d.items)||{}))out.push({uid:u,key:k,v});return out}
 function filesFor(pred){return itemsOf("files").filter(o=>pred(o.v)).map(o=>({uid:o.uid,fid:o.key,f:o.v})).sort((a,b)=>(b.f.at||"").localeCompare(a.f.at||""))}
 function notesFor(taskId){return itemsOf("notes").filter(o=>o.v.task===taskId).map(o=>({uid:o.uid,nid:o.key,n:o.v})).sort((a,b)=>(a.n.at||"").localeCompare(b.n.at||""))}
-function allRequests(){return itemsOf("requests").map(o=>({uid:o.uid,rid:o.key,r:o.v})).sort((a,b)=>(b.r.at||"").localeCompare(a.r.at||""))}
+function allRequests(){return S.req.map(d=>{const{id,...r}=d;return{uid:String(id).split(":")[0],rid:id,r}}).sort((a,b)=>(b.r.at||"").localeCompare(a.r.at||""))}
 function canDecide(o){if(S.isOwner)return true;return isCoord()&&o.uid!==S.meId&&inMyGroup(o.uid)}
 const pendingForMe=()=>allRequests().filter(o=>o.r.state==="pending"&&canDecide(o));
 function flagged(){return scopeTasks().map(t=>({t,r:riskOf(t)})).filter(x=>x.r).sort((a,b)=>(a.r.level===b.r.level?0:a.r.level==="late"?-1:1)||(a.t.due||"").localeCompare(b.t.due||""))}
@@ -840,25 +840,28 @@ V.goals={
           async v=>{if(v==="edit")goalForm(g);else if(v==="add")taskForm(null,g.id);else if(v==="del")confirmModal("Delete “"+g.title+"”?","Linked tasks stay, without a goal.","Delete",async()=>{await S.db.doc("goals/"+g.id).delete();toast("Goal deleted")})})}},ico("more")):null)}))))}};
 
 /* ---------- requests ---------- */
+const visPill=o=>o.r.private?h("span",{class:"pill off",title:"Only the requester and the team leads can see it"},"Private"):h("span",{class:"pill off",title:"Visible to the whole team"},"Team");
 function reqTitle(o){const r=o.r;if(r.type==="extend"){const t=taskById(r.task);return"Extension for "+(t?tid(t)+" “"+t.title+"”":"(deleted task)")+" to "+fmtDate(r.newDue)}return"New task: “"+r.title+"”"}
 V.requests={
   mount(m){m.append(bar("inbox","Requests",isManager()?"proposals and extensions to approve":"proposals and extensions",[h("button",{class:"btn",onclick:()=>requestForm("extend")},ico("clock"),"Ask for extension"),h("button",{class:"btn primary",onclick:()=>requestForm("new")},ico("plus"),"Propose task")]));R.c=h("div",{class:"content"});m.append(R.c)},
   update(){const all=allRequests();const out=[];
     if(isManager()){const pq=pendingForMe();
       out.push(sec("To decide",pq.length,pq.length?h("div",{},pq.map(o=>{const r=o.r;const t=r.task&&taskById(r.task);const reply=h("input",{type:"text",id:"rep-"+o.rid,placeholder:"Reply (optional)"});
-        return h("div",{class:"lrow"},ico(r.type==="extend"?"clock":"plus","muted"),h("div",{class:"main-t"},h("b",{text:reqTitle(o)}),h("small",{text:nameOf(o.uid)+" · "+fmtWhen(r.at)+(t&&t.due?" · now due "+fmtDate(t.due):"")+(r.reason||r.desc?" · “"+(r.reason||r.desc)+"”":"")})),
+        return h("div",{class:"lrow"},ico(r.type==="extend"?"clock":"plus","muted"),h("div",{class:"main-t"},h("b",{text:reqTitle(o)}),h("small",{text:nameOf(o.uid)+" · "+fmtWhen(r.at)+(t&&t.due?" · now due "+fmtDate(t.due):"")+(r.reason||r.desc?" · “"+(r.reason||r.desc)+"”":"")})),visPill(o),
           h("div",{class:"inline",style:"flex:1 1 100%;padding-left:26px"},reply,h("button",{class:"btn sm primary",onclick:e=>decide(o,true,reply.value,e.currentTarget)},ico("checkmark"),"Approve"),h("button",{class:"btn sm",onclick:e=>decide(o,false,reply.value,e.currentTarget)},"Decline")))})):emptyEl("No pending requests",null),{icon:"inbox"}));
       const hist=all.filter(o=>o.r.state!=="pending"&&canDecide(o));
       if(hist.length)out.push(sec("History",hist.length,h("div",{},hist.slice(0,30).map(o=>h("div",{class:"lrow"},avatar(o.uid),h("div",{class:"main-t"},h("b",{text:reqTitle(o)}),h("small",{text:nameOf(o.uid)+" · decided by "+nameOf(o.r.decidedBy)+" "+fmtWhen(o.r.decidedAt)+(o.r.reply?" · “"+o.r.reply+"”":"")})),h("span",{class:"pill q-"+o.r.state},o.r.state==="approved"?"Approved":"Declined"))))))}
     if(!S.isOwner){const mine=all.filter(o=>o.uid===S.meId);
       out.push(sec("My requests",mine.length,mine.length?h("div",{},mine.map(o=>h("div",{class:"lrow"},ico(o.r.type==="extend"?"clock":"plus","muted"),h("div",{class:"main-t"},h("b",{text:reqTitle(o)}),h("small",{text:fmtWhen(o.r.at)+(o.r.reply?" · reply: “"+o.r.reply+"”":"")})),
-        h("span",{class:"pill q-"+o.r.state},{pending:"Pending",approved:"Approved",rejected:"Declined"}[o.r.state]),
-        o.r.state==="pending"?h("button",{class:"btn sm ghost",onclick:()=>writeItem("requests",S.meId,o.rid,null).then(()=>toast("Request withdrawn")).catch(e=>toast(errMsg(e)))},"Withdraw"):null))):emptyEl("No requests sent","Propose a task or ask for more time on a deadline.")))}
+        visPill(o),h("span",{class:"pill q-"+o.r.state},{pending:"Pending",approved:"Approved",rejected:"Declined"}[o.r.state]),
+        o.r.state==="pending"?h("button",{class:"btn sm ghost",onclick:()=>S.db.doc("req/"+o.rid).delete().then(()=>toast("Request withdrawn")).catch(e=>toast(errMsg(e)))},"Withdraw"):null))):emptyEl("No requests sent","Propose a task or ask for more time on a deadline.")));
+      const others=all.filter(o=>o.uid!==S.meId&&!o.r.private);
+      if(others.length)out.push(sec("Team requests",others.length,h("div",{},others.slice(0,30).map(o=>h("div",{class:"lrow"},avatar(o.uid),h("div",{class:"main-t"},h("b",{text:reqTitle(o)}),h("small",{text:nameOf(o.uid)+" · "+fmtWhen(o.r.at)+(o.r.reply?" · reply: “"+o.r.reply+"”":"")})),h("span",{class:"pill q-"+o.r.state},{pending:"Pending",approved:"Approved",rejected:"Declined"}[o.r.state])))),{icon:"users"}))}
     R.c.replaceChildren(...out)}};
 async function decide(o,ok,reply,btn){btn.disabled=true;const r=o.r;
   try{if(ok){if(r.type==="extend"){const t=taskById(r.task);if(t){const{id,...rest}=t;await S.db.doc("tasks/"+id).set({...rest,due:r.newDue,updatedAt:now()})}}
       else await S.db.collection("tasks").add({title:r.title,desc:r.desc||"",...asgPatch([o.uid]),priority:r.priority||"medium",start:todayStr(),due:r.due||null,goal:r.goal||null,estimate:r.estimate||null,num:nextNum(),createdAt:now(),createdBy:S.meId,fromRequest:o.rid})}
-    await writeItem("requests",o.uid,o.rid,{...r,state:ok?"approved":"rejected",decidedAt:now(),decidedBy:S.meId,reply:(reply||"").trim()});toast(ok?"Request approved":"Request declined")}
+    await S.db.doc("req/"+o.rid).set({...r,state:ok?"approved":"rejected",decidedAt:now(),decidedBy:S.meId,reply:(reply||"").trim()});toast(ok?"Request approved":"Request declined")}
   catch(e){toast(errMsg(e));btn.disabled=false}}
 
 /* ---------- docs ---------- */
@@ -1158,20 +1161,21 @@ function prefsForm(){const pr=S.prefs[S.meId]||{};const days=pr.remind||[1,3];
       const n=nm.value.trim();if(!n){toast("Write your name.");return false}
       if(n!==((S.people[S.meId]||{}).name||"")){const{error}=await sb.from("profiles").update({name:n}).eq("id",S.meId);if(error)throw dbErr(error);await loadProfiles()}
       await savePrefs(S.meId,{email:em.value.trim(),remind:REMIND_OPTS.map(o=>o[0]).filter((d,i)=>boxes[i][0].checked),weekly:wk.checked,updatedAt:now()});toast("Preferences saved")})}
+function visChk(id){const[c,lab]=chk(id,"Visible to the whole team",false);return[c,h("div",{style:"display:flex;flex-direction:column;gap:2px"},lab,h("span",{class:"hint"},"Unticked, only you and the team leads can see it."))]}
 function requestForm(type,taskId){
   if(type==="extend"){const mine=S.tasks.filter(t=>isAsg(t,S.meId)&&statusOf(t)!=="done").sort(sortTasks);
     if(!mine.length){toast("You have no open tasks to ask an extension for.");return}
-    const ts=sel("rq-task",mine.map(t=>[t.id,tid(t)+" "+t.title+(t.due?" (scade "+fmtDate(t.due,true)+")":"")]),taskId||mine[0].id);
-    const nd=h("input",{type:"date",id:"rq-due",required:true});const rs=h("textarea",{id:"rq-reason",placeholder:"What you need and why"});
-    openModal("Ask for an extension",h("div",{class:"form"},h("label",{class:"two"},"Task",ts),h("label",{},"New due date",nd),h("label",{class:"full"},"Reason",rs)),async()=>{
+    const ts=sel("rq-task",mine.map(t=>[t.id,tid(t)+" "+t.title+(t.due?" (due "+fmtDate(t.due,true)+")":"")]),taskId||mine[0].id);
+    const[pub,pubL]=visChk("rq-pub");const nd=h("input",{type:"date",id:"rq-due",required:true});const rs=h("textarea",{id:"rq-reason",placeholder:"What you need and why"});
+    openModal("Ask for an extension",h("div",{class:"form"},h("label",{class:"two"},"Task",ts),h("label",{},"New due date",nd),h("label",{class:"full"},"Reason",rs),h("div",{class:"full"},pubL)),async()=>{
       if(!nd.value){toast("Pick the new date.");return false}
-      await writeItem("requests",S.meId,uid("r"),{type:"extend",task:ts.value,newDue:nd.value,reason:rs.value.trim(),at:now(),state:"pending"});toast("Request sent")},"Send request");return}
+      await S.db.doc("req/"+S.meId+":"+uid("r")).set({type:"extend",task:ts.value,newDue:nd.value,reason:rs.value.trim(),private:!pub.checked,at:now(),state:"pending"});toast("Request sent")},"Send request");return}
   const title=h("input",{type:"text",id:"rq-title",class:"big",required:true,maxlength:"200",placeholder:"Proposed task title","aria-label":"Title"});
   const desc=h("textarea",{id:"rq-desc",class:"plain",placeholder:"Why it's needed and what it will produce…","aria-label":"Description"});
-  const due=h("input",{type:"date",id:"rq-ndue"});const pr=sel("rq-prio",PRIOS,"medium");const est=h("input",{type:"number",id:"rq-est",min:"0",step:"0.5"});
-  openModal("Propose a task",[title,desc,h("div",{class:"form"},h("label",{},"Proposed due date",due),h("label",{},"Priority",pr),h("label",{},"Estimated hours",est))],async()=>{
+  const[pub,pubL]=visChk("rq-pub2");const due=h("input",{type:"date",id:"rq-ndue"});const pr=sel("rq-prio",PRIOS,"medium");const est=h("input",{type:"number",id:"rq-est",min:"0",step:"0.5"});
+  openModal("Propose a task",[title,desc,h("div",{class:"form"},h("label",{},"Proposed due date",due),h("label",{},"Priority",pr),h("label",{},"Estimated hours",est),h("div",{class:"full"},pubL))],async()=>{
     if(!title.value.trim()){toast("Write a title.");return false}
-    await writeItem("requests",S.meId,uid("r"),{type:"new",title:title.value.trim(),desc:desc.value.trim(),due:due.value||null,priority:pr.value,estimate:est.value?parseFloat(est.value):null,at:now(),state:"pending"});toast("Proposal sent")},"Send proposal")}
+    await S.db.doc("req/"+S.meId+":"+uid("r")).set({private:!pub.checked,type:"new",title:title.value.trim(),desc:desc.value.trim(),due:due.value||null,priority:pr.value,estimate:est.value?parseFloat(est.value):null,at:now(),state:"pending"});toast("Proposal sent")},"Send proposal")}
 
 /* ---------- export ---------- */
 async function exportCsv(){
@@ -1214,7 +1218,7 @@ async function start(user){if(started)return;started=true;S.meId=user.id;S.db=DB
   const listCol=(c,key)=>DB.collection(c).onSnapshot(s=>{S[key]=s.docs.map(d=>({...d.data(),id:d.id}));S.loaded.add(key);schedule()},onErr);
   const mapCol=c=>DB.collection(c).onSnapshot(s=>{const m={};s.docs.forEach(d=>m[d.id]=d.data());S[c]=m;S.loaded.add(c);schedule()},onErr);
   listCol("tasks","tasks");listCol("goals","goals");listCol("templates","templates");
-  for(const c of["prefs","status","notes","files","work","requests"])mapCol(c);
+  for(const c of["prefs","status","notes","files","work"])mapCol(c);listCol("req","req");
   if(S.isOwner)mapCol("digests");
   sb.channel("fht-live").on("postgres_changes",{event:"*",schema:"public",table:"docs"},p=>{const c=(p.new&&p.new.col)||(p.old&&p.old.col);if(c&&SUBS[c])bump(c)})
     .on("postgres_changes",{event:"*",schema:"public",table:"profiles"},()=>loadProfiles()).subscribe();

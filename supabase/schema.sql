@@ -76,25 +76,29 @@ create table if not exists public.docs (
   primary key (col, id)
 );
 
-create or replace function public.can_read_doc(c text, i text) returns boolean
+create or replace function public.can_read_doc(c text, i text, d jsonb) returns boolean
 language sql stable as $$
   select public.is_member() and case c
     when 'prefs' then i = auth.uid()::text or public.is_manager()
     when 'digests' then public.is_admin()
+    -- requests: id is "<author id>:<request id>"; private unless the author made it public
+    when 'req' then split_part(i, ':', 1) = auth.uid()::text or public.is_manager() or coalesce(d->>'private', 'true') = 'false'
     else true end
 $$;
 create or replace function public.can_write_doc(c text, i text) returns boolean
 language sql stable as $$
   select public.is_member() and case
     when c in ('tasks','goals','templates') then public.is_manager()
-    when c in ('prefs','status','notes','files','work','requests') then i = auth.uid()::text or public.is_manager()
+    when c in ('prefs','status','notes','files','work') then i = auth.uid()::text or public.is_manager()
+    when c = 'req' then split_part(i, ':', 1) = auth.uid()::text or public.is_manager()
     when c = 'digests' then public.is_admin()
     else false end
 $$;
 
 alter table public.docs enable row level security;
 drop policy if exists docs_read on public.docs;
-create policy docs_read on public.docs for select to authenticated using (public.can_read_doc(col, id));
+create policy docs_read on public.docs for select to authenticated using (public.can_read_doc(col, id, data));
+drop function if exists public.can_read_doc(text, text);
 drop policy if exists docs_insert on public.docs;
 create policy docs_insert on public.docs for insert to authenticated with check (public.can_write_doc(col, id));
 drop policy if exists docs_update on public.docs;
