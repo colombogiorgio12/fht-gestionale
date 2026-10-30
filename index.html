@@ -672,11 +672,13 @@ function assigneeMenu(a,t){const before=asg(t);popMenu(a,peopleOpts().map(([v,l]
 function askNotify(taskId,ids){ids=ids.filter(Boolean);if(!ids.length||!isManager())return;
   const t=taskById(taskId);const label=t?tid(t)+" “"+t.title+"”":"this task";
   const opts=[["people","Only the assigned people","A message in #mind that mentions only "+ids.map(nameOf).join(", ")+"."],["team","The whole team","A message in #mind with @channel."],["none","Don't notify","Nothing is sent to Slack."]];
-  const radios=opts.map(([v,l,d],i)=>{const r=h("input",{type:"radio",name:"nf-aud",id:"nf-"+v,value:v});if(i===0)r.checked=true;
+  if(S.isOwner)opts.unshift(["me","Only me, in my private chat","A message in your personal Slack chat. Nobody else sees it."]);
+  const pick=S.isOwner&&ids.every(x=>x===S.meId)?"me":"people";
+  const radios=opts.map(([v,l,d])=>{const r=h("input",{type:"radio",name:"nf-aud",id:"nf-"+v,value:v});if(v===pick)r.checked=true;
     return h("label",{class:"chk",for:"nf-"+v,style:"align-items:flex-start;padding:6px 0"},r,h("span",{},h("b",{style:"font-weight:500;display:block",text:l}),h("span",{class:"hint",text:d})))});
   openModal("Notify on Slack?",[h("p",{class:"hint",style:"font-size:13.5px",text:ids.map(nameOf).join(", ")+(ids.length>1?" have":" has")+" been assigned to "+label+"."}),h("div",{style:"display:flex;flex-direction:column"},radios)],async()=>{
     const aud=(radios.map(l=>l.querySelector("input")).find(r=>r.checked)||{}).value;if(aud==="none"||!aud)return;
-    await S.db.doc("notify/"+uid("n")).set({kind:"assign",task:taskId,people:ids,audience:aud,at:now()});toast(aud==="team"?"Team notified on Slack":"Notified on Slack")},"Send")}
+    await S.db.doc("notify/"+uid("n")).set({kind:"assign",task:taskId,people:ids,audience:aud,at:now()});toast(aud==="team"?"Team notified on Slack":aud==="me"?"Sent to your Slack chat":"Notified on Slack")},"Send")}
 function goalMenu(a,t){popMenu(a,[{value:"",label:"No goal",icon:"x"},...S.goals.map(g=>({value:g.id,label:g.title,icon:"target"}))],t.goal||"",v=>updateTask(t,{goal:v||null},"Goal updated"),"Goal…")}
 
 /* ---------- shell ---------- */

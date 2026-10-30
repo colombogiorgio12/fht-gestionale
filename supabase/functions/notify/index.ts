@@ -97,6 +97,10 @@ async function onNotify(op: string, id: string) {
   const t = td.data as Doc;
   const ids = ((n.people || []) as string[]).filter((x) => P[x]);
   if (!ids.length) return "skip";
+  if (n.audience === "me") {
+    if (by.role !== "admin") return "denied";
+    return post(OWNER, `:bust_in_silhouette: *${tid(t)}${esc(t.title)}* has been assigned to ${ids.map((x) => esc(nameOf(P, x))).join(", ")} (due ${fmt(t.due)}). ${open}`);
+  }
   const who = ids.map((x) => tag(P, x)).join(" ");
   const text = n.audience === "team"
     ? `<!channel> *${tid(t)}${esc(t.title)}* has been assigned to ${who} (due ${fmt(t.due)}). ${open}`
