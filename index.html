@@ -1161,7 +1161,7 @@ function prefsForm(){const pr=S.prefs[S.meId]||{};const days=pr.remind||[1,3];
       const n=nm.value.trim();if(!n){toast("Write your name.");return false}
       if(n!==((S.people[S.meId]||{}).name||"")){const{error}=await sb.from("profiles").update({name:n}).eq("id",S.meId);if(error)throw dbErr(error);await loadProfiles()}
       await savePrefs(S.meId,{email:em.value.trim(),remind:REMIND_OPTS.map(o=>o[0]).filter((d,i)=>boxes[i][0].checked),weekly:wk.checked,updatedAt:now()});toast("Preferences saved")})}
-function visChk(id){const[c,lab]=chk(id,"Visible to the whole team",false);return[c,h("div",{style:"display:flex;flex-direction:column;gap:2px"},lab,h("span",{class:"hint"},"Unticked, only you and the team leads can see it."))]}
+function visChk(id){const[c,lab]=chk(id,"Visible to the whole team",true);return[c,h("div",{style:"display:flex;flex-direction:column;gap:2px"},lab,h("span",{class:"hint"},"Untick to keep it private: only you and the team leads will see it."))]}
 function requestForm(type,taskId){
   if(type==="extend"){const mine=S.tasks.filter(t=>isAsg(t,S.meId)&&statusOf(t)!=="done").sort(sortTasks);
     if(!mine.length){toast("You have no open tasks to ask an extension for.");return}
