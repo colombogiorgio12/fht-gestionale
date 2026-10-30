@@ -639,15 +639,10 @@ function fileRow(o,showLink){const{f}=o;const canDel=canDeleteFile(o);const t=f.
       f.kind!=="link"?h("button",{class:"icon-btn",title:"Download",onclick:()=>downloadFile(o)},ico("download")):null,
       f.kind!=="link"?h("button",{class:"icon-btn",title:"Open in a new tab",onclick:()=>openFile(o)},ico("external")):null,
       canDel?armed(h("button",{class:"btn sm danger ghost",title:"Delete"},ico("trash")),"Confirm",()=>deleteFile(o)):null))}
-function dropZone(link,label){
-  const input=h("input",{type:"file",multiple:true,hidden:true,id:"file-"+Math.random().toString(36).slice(2)});
-  const btn=h("button",{class:"btn sm",onclick:()=>input.click()},ico("upload"),"Upload file");
-  input.addEventListener("change",()=>{uploadMany([...input.files],link(),btn);input.value=""});
-  const z=h("div",{class:"drop"},btn,h("button",{class:"btn sm",onclick:()=>linkForm(link())},ico("link"),"Link shared document"),h("span",{},label||"or drop a file here, up to 50 MB."),input);
-  z.addEventListener("dragover",e=>{e.preventDefault();z.classList.add("over")});
-  z.addEventListener("dragleave",()=>z.classList.remove("over"));
-  z.addEventListener("drop",e=>{e.preventDefault();z.classList.remove("over");uploadMany([...e.dataTransfer.files],link(),btn)});
-  return z}
+// Documents live on OneDrive; the tracker only keeps links to them.
+function dropZone(link){
+  return h("div",{class:"drop"},h("button",{class:"btn sm primary",onclick:()=>linkForm(link())},ico("link"),"Link a OneDrive document"),
+    h("span",{},"Keep files in the team's OneDrive folder and paste the sharing link here."))}
 
 /* ---------- popover menu ---------- */
 let popEl=null;
@@ -869,7 +864,7 @@ V.docs={
   mount(m){R.link=sel("up-task",[["","General document"]],"");
     m.append(bar("file","Documents",null,[]));
     R.q=h("input",{type:"search",id:"d-q",placeholder:"Search by name…  /"});R.q.addEventListener("input",()=>this.update());
-    m.append(h("div",{class:"filters"},R.q,h("label",{class:"chk",for:"up-task"},"Link new files to",R.link)));
+    m.append(h("div",{class:"filters"},R.q,h("label",{class:"chk",for:"up-task"},"Link new documents to",R.link)));
     R.c=h("div",{class:"content"});m.append(R.c);R.drop=dropZone(()=>R.link.value?{task:R.link.value}:{})},
   update(){const cur=R.link.value;R.link.replaceChildren(...[["","General document"],...S.tasks.filter(t=>canWork(t)&&statusOf(t)!=="done").sort(sortTasks).map(t=>[t.id,tid(t)+" "+t.title])].map(([v,l])=>h("option",{value:v},l)));R.link.value=cur;
     const q=R.q.value.trim().toLowerCase();const all=filesFor(f=>!q||(f.name||"").toLowerCase().includes(q));
@@ -984,7 +979,7 @@ function openTask(id){closePop();S.drawerTask=id;const ov=$("#drawer");
     try{const item={id:uid("c"),t:txt};if(manages(t))await updateTask(t,{checklist:[...(t.checklist||[]),item]});else await writeItem("work",S.meId,t.id,{extra:[...(ownWork(t).extra||[]),item]})}catch(e){toast(errMsg(e))}};
   ci.addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();addCheck()}});
   P.checkForm=h("div",{class:"inline",style:"margin-top:6px"},ci);
-  P.drop=dropZone(()=>({task:S.drawerTask}),"or drop here");
+  P.drop=dropZone(()=>({task:S.drawerTask}));
   const ta=h("textarea",{id:"note-text",placeholder:"Write a comment…  (⌘↩ to send)"});
   const send=h("button",{class:"btn sm primary",onclick:async()=>{const txt=ta.value.trim();if(!txt)return;send.disabled=true;
     try{await writeItem("notes",S.meId,uid("n"),{task:S.drawerTask,text:txt,at:now()});ta.value=""}catch(e){toast(errMsg(e))}finally{send.disabled=false}}},"Comment");
