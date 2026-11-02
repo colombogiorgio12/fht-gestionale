@@ -669,7 +669,9 @@ function statusMenu(a,t){popMenu(a,STATUSES.map(([k,l])=>({value:k,label:l,icon:
 function prioMenu(a,t){popMenu(a,PRIOS.map(([k,l])=>({value:k,label:l,el:()=>prioIco(k)})),t.priority,v=>updateTask(t,{priority:v},"Priority: "+PRIO_L[v]))}
 function assigneeMenu(a,t){const before=asg(t);popMenu(a,peopleOpts().map(([v,l])=>({value:v,label:l,el:()=>avatar(v)})),before,ids=>{const tt=taskById(t.id)||t;S.asgSession={task:t.id,before,cur:ids};updateTask(tt,asgPatch(ids),ids.length?"Assigned to "+ids.map(nameOf).join(", "):"Unassigned")},"Assign to…",true)}
 // Asks whether (and whom) to notify on Slack about people newly assigned to a task.
-function askNotify(taskId,ids){ids=ids.filter(Boolean);if(!ids.length||!isManager())return;
+// Slack notifications are paused; set to true to ask again after assigning people.
+const SLACK_ON=false;
+function askNotify(taskId,ids){ids=ids.filter(Boolean);if(!SLACK_ON||!ids.length||!isManager())return;
   const t=taskById(taskId);const label=t?tid(t)+" “"+t.title+"”":"this task";
   const opts=[["people","Only the assigned people","A message in #mind that mentions only "+ids.map(nameOf).join(", ")+"."],["team","The whole team","A message in #mind with @channel."],["none","Don't notify","Nothing is sent to Slack."]];
   if(S.isOwner)opts.unshift(["me","Only me, in my private chat","A message in your personal Slack chat. Nobody else sees it."]);
@@ -903,7 +905,7 @@ V.team={
       const tg=(key,label)=>{const[c,lab]=chk("sl-"+key,label,!!cfg[key]);c.addEventListener("change",async()=>{try{await S.db.doc("settings/slack").set({...((S.settings.slack)||{}),[key]:c.checked});toast("Slack settings saved")}catch(e){toast(errMsg(e));c.checked=!c.checked}});return lab};
       const missing=ids.filter(i=>!(S.people[i]||{}).slack_id).length;
       out.push(sec("Slack notifications",null,h("div",{style:"padding:12px 14px;display:flex;flex-direction:column;gap:8px"},
-        h("p",{class:"hint"},"Public requests, replies and the morning summary go to #mind. When you assign a task, the tracker asks whether to notify the assigned people, the whole team or nobody. Private requests and your own summary go only to your Slack chat."),
+        h("p",{class:"hint"},"Slack messages are paused: nothing is sent to #mind or to private chats."),
         tg("channelOnRequests","Mention @channel for new public requests (otherwise only you)"),tg("channelOnDaily","Mention @channel in the morning summary"),
         missing?h("p",{class:"hint"},missing+(missing===1?" person has":" people have")+" no Slack member ID yet: they'll appear by name instead of being mentioned. Set it from Role, group and permissions."):null),{icon:"bell"}))}
     if(S.isOwner){const off=Object.values(S.people).filter(p=>!p.active&&p.id!==S.meId);

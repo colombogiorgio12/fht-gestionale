@@ -182,7 +182,11 @@ async function daily() {
   return "sent";
 }
 
+// While true, nothing is posted to Slack (requests, assignments and the morning summary).
+const PAUSED = true;
+
 Deno.serve(async (req) => {
+  if (PAUSED) return reply({ result: "paused" });
   try {
     const body = await req.json();
     if (body.type === "daily") return reply({ result: await daily() });
